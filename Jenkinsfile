@@ -22,7 +22,7 @@ pipeline {
         stage('Test') {
             steps {
                 sh '''
-                pytest
+                pytest \
                 --junitxml=report.xml \
                 --cov=. \
                 --cov-report=xml 
