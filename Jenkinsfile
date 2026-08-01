@@ -8,7 +8,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: 'main',
-                url: '${GIT_REPO_URL}'
+                url: 'https://github.com/Anantch2005/Calculator-Ci-CD-prac'
             }
         }
         stage('Install') {
