@@ -7,46 +7,52 @@ pipeline {
     }
 
     tools {
-        sonarQube 'sonarScanner'
+        sonarQube 'SonarScanner'
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 git branch: 'main',
-                url: 'https://github.com/Anantch2005/Calculator-Ci-CD-prac'
+                    url: 'https://github.com/Anantch2005/Calculator-Ci-CD-prac'
             }
         }
+
         stage('Install') {
             steps {
-                sh '''
-                    pip install -r requirements.txt
-                '''
+                sh 'pip install -r requirements.txt'
             }
         }
+
         stage('Test') {
             steps {
                 sh '''
                 pytest \
                 --junitxml=report.xml \
                 --cov=. \
-                --cov-report=xml 
+                --cov-report=xml
                 '''
             }
         }
+
         stage('SonarQube Analysis') {
             steps {
+
                 withSonarQubeEnv('SonarQube') {
+
                     sh '''
                     sonar-scanner
                     '''
 
                 }
+
             }
         }
-    }
-    post {
 
+    }
+
+    post {
         always {
             junit 'report.xml'
         }
