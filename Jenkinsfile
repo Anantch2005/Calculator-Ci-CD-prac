@@ -77,6 +77,7 @@ pipeline {
                 docker {
                     image 'aquasec/trivy:latest'
                     args '''
+                    --entrypoint=''
                     -u root:root
                     -v /var/run/docker.sock:/var/run/docker.sock
                     '''
