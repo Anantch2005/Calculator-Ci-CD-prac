@@ -5,6 +5,11 @@ pipeline {
             args '-u root:root'
         }
     }
+
+    tools {
+        sonarQube 'sonarScanner'
+    }
+
     stages {
         stage('Checkout') {
             steps {
@@ -15,7 +20,7 @@ pipeline {
         stage('Install') {
             steps {
                 sh '''
-                    pip install -r requirement.txt
+                    pip install -r requirements.txt
                 '''
             }
         }
@@ -27,6 +32,16 @@ pipeline {
                 --cov=. \
                 --cov-report=xml 
                 '''
+            }
+        }
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh '''
+                    sonar-scanner
+                    '''
+
+                }
             }
         }
     }
