@@ -5,9 +5,8 @@ pipeline {
             args '-u root:root'
         }
     }
-
-    tools {
-        sonarRunner 'SonarScanner'
+    environment {
+        SONAR_HOME = tool 'SonarScanner'
     }
 
     stages {
@@ -29,27 +28,25 @@ pipeline {
             steps {
                 sh '''
                 pytest \
-                --junitxml=report.xml \
-                --cov=. \
-                --cov-report=xml
+                  --junitxml=report.xml \
+                  --cov=. \
+                  --cov-report=xml
                 '''
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
+                script {
 
-                withSonarQubeEnv('SonarQube') {
-
-                    sh '''
-                    sonar-scanner
-                    '''
-
+                    withSonarQubeEnv('SonarScanner') {
+                        sh """
+                        ${SONAR_HOME}/bin/sonar-scanner
+                        """
+                    }
                 }
-
             }
         }
-
     }
 
     post {
