@@ -62,5 +62,29 @@ pipeline {
 
             }
         }
+        stage('Build image') {
+            agent {
+                docker {
+                    image 'docker:latest'
+                }
+                steps {
+                    sh '''
+                    docker build -t calculator:latest .
+                    '''
+                }
+            }
+        }
+        stage('Trivy scan') {
+            agent {
+                docker {
+                    image 'aquasec/trivy:latest'
+                }
+                steps {
+                    sh '''
+                    trivy image calculator:latest
+                    '''
+                }
+            }
+        }
     }
 }
