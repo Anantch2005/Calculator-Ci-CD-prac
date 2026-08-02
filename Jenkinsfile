@@ -1,7 +1,7 @@
 pipeline {
     agent {
         docker {
-            image 'python:3.12'
+            image 'ubuntu:latest'
             args '''
             -u root:root
             -v /var/lib/jenkins/tools:/var/lib/jenkins/tools
@@ -23,7 +23,8 @@ pipeline {
 
         stage('Install') {
             steps {
-                sh 'pip install -r requirements.txt'
+                sh 'apt-get update && apt-get install -y python3-pip'
+                sh 'pip3 install -r requirements.txt'
             }
         }
 
@@ -37,6 +38,15 @@ pipeline {
                 '''
             }
         }
+        stage('Check Java') {
+            steps {
+                sh '''
+                apt-get update
+                apt-get install -y openjdk-17-jre
+                java -version
+                '''
+            }
+            }
 
         stage('SonarQube Analysis') {
             steps {
