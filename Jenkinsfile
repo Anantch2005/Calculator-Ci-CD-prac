@@ -2,7 +2,10 @@ pipeline {
     agent {
         docker {
             image 'python:3.12'
-            args '-u root:root'
+            args '''
+            -u root:root
+            -v /var/lib/jenkins/tools:/var/lib/jenkins/tools
+            '''
         }
     }
     environment {
