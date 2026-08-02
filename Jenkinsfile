@@ -9,13 +9,10 @@ pipeline {
             steps {
                 git branch: 'main',
                     url: 'https://github.com/Anantch2005/Calculator-Ci-CD-prac'
-
-                sh 'ls -la'
             }
         }
 
         stage('Test') {
-
             agent {
                 docker {
                     image 'python:3.12'
@@ -42,7 +39,6 @@ pipeline {
         }
 
         stage('SonarQube Analysis') {
-
             agent {
                 docker {
                     image 'sonarsource/sonar-scanner-cli:latest'
@@ -51,39 +47,46 @@ pipeline {
             }
 
             steps {
-
                 withSonarQubeEnv('SonarQube') {
-
-                    sh '''
-                    sonar-scanner
-                    '''
-
+                    sh 'sonar-scanner'
                 }
-
             }
         }
-        stage('Build image') {
+
+        stage('Build Image') {
             agent {
                 docker {
-                    image 'docker:latest'
-                }
-                steps {
-                    sh '''
-                    docker build -t calculator:latest .
+                    image 'docker:28-cli'
+                    args '''
+                    -u root:root
+                    -v /var/run/docker.sock:/var/run/docker.sock
                     '''
                 }
             }
+
+            steps {
+                sh '''
+                docker build -t calculator:latest .
+                docker images
+                '''
+            }
         }
-        stage('Trivy scan') {
+
+        stage('Trivy Scan') {
             agent {
                 docker {
                     image 'aquasec/trivy:latest'
-                }
-                steps {
-                    sh '''
-                    trivy image calculator:latest
+                    args '''
+                    -u root:root
+                    -v /var/run/docker.sock:/var/run/docker.sock
                     '''
                 }
+            }
+
+            steps {
+                sh '''
+                trivy image calculator:latest
+                '''
             }
         }
     }
