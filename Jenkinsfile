@@ -11,7 +11,11 @@ pipeline {
                     url: 'https://github.com/Anantch2005/Calculator-Ci-CD-prac'
             }
         }
-
+        stage('clean workspace') {
+            steps {
+                cleanWs()
+            }
+        }
         stage('Test') {
             agent {
                 docker {
