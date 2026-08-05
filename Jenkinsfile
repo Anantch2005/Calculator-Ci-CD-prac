@@ -72,6 +72,7 @@ pipeline {
                 sh '''
                 docker build -t calculator:latest .
                 docker images
+                echo "Docker image built successfully."
                 '''
             }
         }
@@ -91,6 +92,7 @@ pipeline {
             steps {
                 sh '''
                 trivy image calculator:latest
+                echo "Trivy scan completed successfully."
                 '''
             }
         }
