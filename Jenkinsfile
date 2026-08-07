@@ -27,7 +27,7 @@ pipeline {
         stage('Test') {
             agent {
                 docker {
-                    image 'python:3.12'
+                    image 'python:latest'
                     args '-u root:root'
                 }
             }
