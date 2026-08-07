@@ -110,6 +110,7 @@ pipeline {
                     '''
                 }
             }
+            
             steps {
                 docker_push(
                     image: env.IMAGE_NAME,
