@@ -4,7 +4,7 @@ pipeline {
     agent none
 
     environment {
-        IMAGE_NAME = "calculator"
+        IMAGE_NAME = "anant2005ch/calculator"
         IMAGE_TAG = "${BUILD_NUMBER}"
     }
 
