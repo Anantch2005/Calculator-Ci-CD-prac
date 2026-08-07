@@ -56,9 +56,10 @@ pipeline {
                 }
             }
             steps {
-                withSonarQubeEnv('SonarQube') {
-                    sh 'sonar-scanner'
-                }
+                sonarqube_analysis (
+                    server: 'SonarQube',
+                    scanner: 'sonar-scanner'
+                )   
             }
         }
 
@@ -92,7 +93,10 @@ pipeline {
                 }
             }
             steps {
-                sh "trivy image ${env.IMAGE_NAME}:${env.IMAGE_TAG}"
+                trivy_scan(
+                    image: env.IMAGE_NAME,
+                    tag: env.IMAGE_TAG
+                )
             }
         }
 
