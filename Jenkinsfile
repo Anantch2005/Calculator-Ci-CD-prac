@@ -9,21 +9,21 @@ pipeline {
     }
 
     stages {
-
-        stage('Workspace Cleanup') {
+        stage('Clean Workspace') {
             agent any
             steps {
                 cleanWs()
             }
         }
+
         stage('Checkout') {
             agent any
-
             steps {
                 git branch: 'main',
                     url: 'https://github.com/Anantch2005/Calculator-Ci-CD-prac'
             }
         }
+
         stage('Test') {
             agent {
                 docker {
@@ -31,7 +31,6 @@ pipeline {
                     args '-u root:root'
                 }
             }
-
             steps {
                 sh '''
                 pip install -r requirements.txt
@@ -42,7 +41,6 @@ pipeline {
                   --cov-report=xml
                 '''
             }
-
             post {
                 always {
                     junit 'report.xml'
@@ -57,7 +55,6 @@ pipeline {
                     args '-u root:root'
                 }
             }
-
             steps {
                 withSonarQubeEnv('SonarQube') {
                     sh 'sonar-scanner'
@@ -75,7 +72,6 @@ pipeline {
                     '''
                 }
             }
-
             steps {
                 docker_build(
                     image: env.IMAGE_NAME,
@@ -95,15 +91,11 @@ pipeline {
                     '''
                 }
             }
-
             steps {
-                sh '''
-                trivy image env.IMAGE_NAME:${env.IMAGE_TAG}
-                echo "Trivy scan completed successfully."
-                '''
-                }
+                sh "trivy image ${env.IMAGE_NAME}:${env.IMAGE_TAG}"
             }
         }
+
         stage('Push Image') {
             agent {
                 docker {
