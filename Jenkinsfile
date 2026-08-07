@@ -1,19 +1,27 @@
+@Library('Shared') _
+
 pipeline {
     agent none
 
+    environment {
+        IMAGE_NAME = "calculator"
+        IMAGE_TAG = "${BUILD_NUMBER}"
+    }
+
     stages {
 
+        stage('Workspace Cleanup') {
+            agent any
+            steps {
+                cleanWs()
+            }
+        }
         stage('Checkout') {
             agent any
 
             steps {
                 git branch: 'main',
                     url: 'https://github.com/Anantch2005/Calculator-Ci-CD-prac'
-            }
-        }
-        stage('clean workspace') {
-            steps {
-                cleanWs()
             }
         }
         stage('Test') {
@@ -69,11 +77,10 @@ pipeline {
             }
 
             steps {
-                sh '''
-                docker build -t calculator:latest .
-                docker images
-                echo "Docker image built successfully."
-                '''
+                docker_build(
+                    image: env.IMAGE_NAME,
+                    tag: env.IMAGE_TAG
+                )
             }
         }
 
@@ -91,9 +98,28 @@ pipeline {
 
             steps {
                 sh '''
-                trivy image calculator:latest
+                trivy image env.IMAGE_NAME:${env.IMAGE_TAG}
                 echo "Trivy scan completed successfully."
                 '''
+                }
+            }
+        }
+        stage('Push Image') {
+            agent {
+                docker {
+                    image 'docker:28-cli'
+                    args '''
+                    -u root:root 
+                    -v /var/run/docker.sock:/var/run/docker.sock
+                    '''
+                }
+            }
+            steps {
+                docker_push(
+                    image: env.IMAGE_NAME,
+                    tag: env.IMAGE_TAG,
+                    credentialsId: 'dockerhub'
+                )
             }
         }
     }
