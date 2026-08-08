@@ -32,14 +32,7 @@ pipeline {
                 }
             }
             steps {
-                sh '''
-                pip install -r requirements.txt
-
-                pytest \
-                  --junitxml=report.xml \
-                  --cov=. \
-                  --cov-report=xml
-                '''
+                python_test()
             }
             post {
                 always {
