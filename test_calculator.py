@@ -1,4 +1,5 @@
-import pytest
+import os
+
 from calculator import *
 
 
@@ -51,14 +52,19 @@ def test_square():
     assert square(5) == 25
 
 
-
-import os
-
-
 def test_autoheal_flaky():
+    """
+    Controlled failure used to test AutoHeal.
+
+    Normal build:
+        AUTOHEAL_RETRY=false
+        -> intentionally fails
+
+    AutoHeal retry:
+        AUTOHEAL_RETRY=true
+        -> passes
+    """
 
     if os.getenv("AUTOHEAL_TEST") == "true":
-
         if os.getenv("AUTOHEAL_RETRY") != "true":
-
             assert False, "AUTOHEAL_FLAKY_TEST"
