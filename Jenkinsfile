@@ -2,6 +2,14 @@
 
 pipeline {
     agent none
+    
+    parameters {
+        booleanParam(
+            name: 'AUTOHEAL_RETRY',
+            defaultValue: false,
+            description: 'Set to true when AutoHeal retries a recoverable failure.'
+        )
+    }
 
     environment {
         IMAGE_NAME = "anant2005ch/calculator"
