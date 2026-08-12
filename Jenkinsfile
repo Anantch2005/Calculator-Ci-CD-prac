@@ -3,6 +3,14 @@
 pipeline {
     agent none
 
+    parameters {
+        booleanParam(
+            name: 'AUTOHEAL_RETRY',
+            defaultValue: false,
+            description: 'Used by AutoHeal when retrying a recoverable failure.'
+       )
+    }
+
     environment {
         IMAGE_NAME = "anant2005ch/calculator"
         IMAGE_TAG = "${BUILD_NUMBER}"
