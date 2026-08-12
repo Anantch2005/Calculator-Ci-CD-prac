@@ -56,17 +56,9 @@ import os
 
 
 def test_autoheal_flaky():
-    """
-    Simulated flaky test.
-
-    The first AUTOHEAL retry fails.
-    Subsequent runs succeed using a workspace marker.
-    """
-    marker = ".autoheal_flaky_once"
 
     if os.getenv("AUTOHEAL_TEST") == "true":
-        if not os.path.exists(marker):
-            with open(marker, "w") as file:
-                file.write("failed")
+
+        if os.getenv("AUTOHEAL_RETRY") != "true":
 
             assert False, "AUTOHEAL_FLAKY_TEST"
