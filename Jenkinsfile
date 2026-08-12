@@ -14,6 +14,7 @@ pipeline {
     environment {
         IMAGE_NAME = "anant2005ch/calculator"
         IMAGE_TAG = "${BUILD_NUMBER}"
+        AUTOHEAL_TEST = "true"
     }
 
     stages {
