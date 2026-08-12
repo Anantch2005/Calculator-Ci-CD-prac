@@ -1,22 +1,19 @@
 @Library('Shared') _
 
 pipeline {
-
     agent none
 
     parameters {
         booleanParam(
             name: 'AUTOHEAL_RETRY',
             defaultValue: false,
-            description: 'Set to true when AutoHeal retries a recoverable failure.'
+            description: 'Used by AutoHeal when retrying a recoverable failure.'
         )
     }
 
     environment {
         IMAGE_NAME = "anant2005ch/calculator"
         IMAGE_TAG = "${BUILD_NUMBER}"
-
-        // Used by the intentional AutoHeal test.
         AUTOHEAL_TEST = "true"
     }
 
@@ -24,7 +21,6 @@ pipeline {
 
         stage('Clean Workspace') {
             agent any
-
             steps {
                 cleanWs()
             }
@@ -32,40 +28,21 @@ pipeline {
 
         stage('Checkout') {
             agent any
-
             steps {
-                git(
-                    branch: 'main',
+                git branch: 'main',
                     url: 'https://github.com/Anantch2005/Calculator-Ci-CD-prac'
-                )
             }
         }
 
         stage('Test') {
-
             agent {
                 docker {
                     image 'python:latest'
-
                     args '--add-host=host.docker.internal:host-gateway -u root:root'
                 }
             }
 
             steps {
-
-                sh '''
-                    echo "=========================================="
-                    echo "AutoHeal connectivity test"
-                    echo "=========================================="
-
-                    curl --fail --silent --show-error \
-                        http://host.docker.internal:8000/health
-
-                    echo ""
-                    echo "AutoHeal is reachable."
-                    echo ""
-                '''
-
                 python_test()
             }
 
@@ -77,17 +54,14 @@ pipeline {
         }
 
         stage('SonarQube Analysis') {
-
             agent {
                 docker {
                     image 'sonarsource/sonar-scanner-cli:latest'
-
                     args '--add-host=host.docker.internal:host-gateway -u root:root'
                 }
             }
 
             steps {
-
                 sonarqube_analysis(
                     server: 'SonarQube',
                     scanner: 'sonar-scanner'
@@ -96,11 +70,9 @@ pipeline {
         }
 
         stage('Build Image') {
-
             agent {
                 docker {
                     image 'docker:28-cli'
-
                     args '''
                         --add-host=host.docker.internal:host-gateway
                         -u root:root
@@ -110,7 +82,6 @@ pipeline {
             }
 
             steps {
-
                 docker_build(
                     image: env.IMAGE_NAME,
                     tag: env.IMAGE_TAG
@@ -119,11 +90,9 @@ pipeline {
         }
 
         stage('Trivy Scan') {
-
             agent {
                 docker {
                     image 'aquasec/trivy:latest'
-
                     args '''
                         --add-host=host.docker.internal:host-gateway
                         --entrypoint=''
@@ -134,7 +103,6 @@ pipeline {
             }
 
             steps {
-
                 trivy_scan(
                     image: env.IMAGE_NAME,
                     tag: env.IMAGE_TAG
@@ -143,11 +111,9 @@ pipeline {
         }
 
         stage('Push Image') {
-
             agent {
                 docker {
                     image 'docker:28-cli'
-
                     args '''
                         --add-host=host.docker.internal:host-gateway
                         -u root:root
@@ -157,7 +123,6 @@ pipeline {
             }
 
             steps {
-
                 docker_push(
                     image: env.IMAGE_NAME,
                     tag: env.IMAGE_TAG,
@@ -168,24 +133,9 @@ pipeline {
     }
 
     post {
-
         failure {
-
             script {
-
-                echo "=========================================="
-                echo "Jenkins build FAILED"
-                echo "Sending incident to AutoHeal"
-                echo "=========================================="
-
-                def payload = """
-                {
-                    "job_name": "${env.JOB_NAME}",
-                    "build_number": ${env.BUILD_NUMBER},
-                    "build_url": "${env.BUILD_URL}",
-                    "status": "FAILURE"
-                }
-                """
+                echo "Sending Jenkins failure to AutoHeal..."
 
                 sh """
                     curl --fail --silent --show-error \
@@ -193,7 +143,12 @@ pipeline {
                         http://host.docker.internal:8000/webhook/jenkins \
                         -H 'Content-Type: application/json' \
                         -H 'X-AutoHeal-Secret: change-me' \
-                        -d '${payload}'
+                        --data-raw '{
+                            "job_name": "${env.JOB_NAME}",
+                            "build_number": ${env.BUILD_NUMBER},
+                            "build_url": "${env.BUILD_URL}",
+                            "status": "FAILURE"
+                        }'
                 """
             }
         }
