@@ -8,7 +8,7 @@ pipeline {
             name: 'AUTOHEAL_RETRY',
             defaultValue: false,
             description: 'Used by AutoHeal when retrying a recoverable failure.'
-       )
+        )
     }
 
     environment {
@@ -75,7 +75,6 @@ pipeline {
             agent {
                 docker {
                     image 'docker:28-cli'
-
                     args '''
                         -u root:root
                         -v /var/run/docker.sock:/var/run/docker.sock
@@ -95,7 +94,6 @@ pipeline {
             agent {
                 docker {
                     image 'aquasec/trivy:latest'
-
                     args '''
                         --entrypoint=''
                         -u root:root
@@ -116,7 +114,6 @@ pipeline {
             agent {
                 docker {
                     image 'docker:28-cli'
-
                     args '''
                         -u root:root
                         -v /var/run/docker.sock:/var/run/docker.sock
@@ -137,22 +134,25 @@ pipeline {
     post {
         failure {
             script {
-
                 echo "Sending Jenkins failure to AutoHeal..."
 
-                sh '''
-                    curl --fail --silent --show-error \
-                        -X POST \
-                        http://host.docker.internal:8000/webhook/jenkins \
-                        -H "Content-Type: application/json" \
-                        -H "X-AutoHeal-Secret: change-me" \
-                        --data-raw "{
-                            \\"job_name\\": \\"${JOB_NAME}\\",
-                            \\"build_number\\": ${BUILD_NUMBER},
-                            \\"build_url\\": \\"${BUILD_URL}\\",
-                            \\"status\\": \\"FAILURE\\"
-                        }"
-                '''
+                docker.image('curlimages/curl:latest').inside(
+                    '--add-host=host.docker.internal:host-gateway'
+                ) {
+                    sh """
+                        curl --fail --silent --show-error \
+                            -X POST \
+                            http://host.docker.internal:8000/webhook/jenkins \
+                            -H 'Content-Type: application/json' \
+                            -H 'X-AutoHeal-Secret: change-me' \
+                            --data-raw '{
+                                "job_name": "${env.JOB_NAME}",
+                                "build_number": ${env.BUILD_NUMBER},
+                                "build_url": "${env.BUILD_URL}",
+                                "status": "FAILURE"
+                            }'
+                    """
+                }
             }
         }
     }
