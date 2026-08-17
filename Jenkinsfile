@@ -55,6 +55,49 @@ pipeline {
             }
         }
 
+        /*
+         * TEMPORARY PHASE 5 TEST
+         *
+         * This deliberately creates an ambiguous infrastructure-style
+         * failure that should NOT match the existing rule classifier.
+         *
+         * Expected flow:
+         *
+         * Jenkins FAILURE
+         *      ↓
+         * Rule Classifier → UNKNOWN
+         *      ↓
+         * Ollama
+         *      ↓
+         * AI classification
+         *      ↓
+         * Policy Engine
+         *      ↓
+         * RETRY / ESCALATE
+         *
+         * Remove this stage after Phase 5 validation.
+         */
+        stage('AI Test Failure') {
+            agent any
+
+            when {
+                expression {
+                    return !params.AUTOHEAL_RETRY
+                }
+            }
+
+            steps {
+                sh '''
+                    echo "CI DIAGNOSTIC FAILURE"
+                    echo "upstream registry connection timed out"
+                    echo "connection to upstream registry failed after 30 seconds"
+                    echo "retry request exhausted"
+
+                    exit 1
+                '''
+            }
+        }
+
         stage('SonarQube Analysis') {
             agent {
                 docker {
