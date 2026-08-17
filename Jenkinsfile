@@ -89,10 +89,10 @@ pipeline {
             steps {
                 sh '''
                     echo "CI DIAGNOSTIC FAILURE"
-                    echo "upstream registry connection timed out"
-                    echo "connection to upstream registry failed after 30 seconds"
-                    echo "retry request exhausted"
-
+                    echo "upstream operation alpha-17 terminated unexpectedly"
+                    echo "remote service handshake did not complete"
+                    echo "attempt sequence exhausted after repeated transport interruption"
+                    echo "diagnostic marker: AI_UNKNOWN_CASE_7419"
                     exit 1
                 '''
             }
