@@ -89,9 +89,14 @@ pipeline {
             steps {
                 sh '''
                     echo "CI DIAGNOSTIC FAILURE"
-                    echo "upstream operation alpha-17 terminated unexpectedly"
-                    echo "remote service handshake did not complete"
-                    echo "attempt sequence exhausted after repeated transport interruption"
+                    echo "component: artifact-consumer"
+                    echo "operation: fetch-release-metadata"
+                    echo "remote artifact service returned malformed protocol response"
+                    echo "expected response header: artifact-version"
+                    echo "received response header: <empty>"
+                    echo "request-id: ai-demo-7419"
+                    echo "attempts: 3"
+                    echo "final state: operation aborted"
                     echo "diagnostic marker: AI_UNKNOWN_CASE_7419"
                     exit 1
                 '''
