@@ -14,18 +14,13 @@ pipeline {
     environment {
         IMAGE_NAME = "anant2005ch/calculator"
         IMAGE_TAG = "${BUILD_NUMBER}"
-
-        // Important:
-        // The normal calculator flaky test must stay disabled
-        // for this AI-specific validation.
-        AUTOHEAL_TEST = "false"
+        AUTOHEAL_TEST = "true"
     }
 
     stages {
 
         stage('Clean Workspace') {
             agent any
-
             steps {
                 cleanWs()
             }
@@ -33,7 +28,6 @@ pipeline {
 
         stage('Checkout') {
             agent any
-
             steps {
                 git branch: 'main',
                     url: 'https://github.com/Anantch2005/Calculator-Ci-CD-prac'
@@ -58,6 +52,7 @@ pipeline {
                 }
             }
         }
+
         stage('SonarQube Analysis') {
             agent {
                 docker {
@@ -145,7 +140,9 @@ pipeline {
                 ) {
 
                     sh """
-                        curl --fail --silent --show-error \
+                        HTTP_CODE=\$(curl --silent --show-error \
+                            -o /tmp/autoheal-response.json \
+                            -w "%{http_code}" \
                             -X POST \
                             http://host.docker.internal:8000/webhook/jenkins \
                             -H 'Content-Type: application/json' \
@@ -155,7 +152,13 @@ pipeline {
                                 "build_number": ${env.BUILD_NUMBER},
                                 "build_url": "${env.BUILD_URL}",
                                 "status": "FAILURE"
-                            }'
+                            }')
+
+                        echo "AutoHeal HTTP status: \${HTTP_CODE}"
+
+                        if [ -f /tmp/autoheal-response.json ]; then
+                            cat /tmp/autoheal-response.json
+                        fi
                     """
                 }
             }
