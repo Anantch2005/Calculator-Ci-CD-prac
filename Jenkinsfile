@@ -14,6 +14,10 @@ pipeline {
     environment {
         IMAGE_NAME = "anant2005ch/calculator"
         IMAGE_TAG = "${BUILD_NUMBER}"
+
+        // Important:
+        // The normal calculator flaky test must stay disabled
+        // for this AI-specific validation.
         AUTOHEAL_TEST = "false"
     }
 
@@ -56,28 +60,34 @@ pipeline {
         }
 
         /*
-         * TEMPORARY PHASE 5 TEST
+         * PHASE 5 — CONTROLLED AI VALIDATION
          *
-         * This deliberately creates an ambiguous infrastructure-style
-         * failure that should NOT match the existing rule classifier.
+         * The normal test stage succeeds.
          *
-         * Expected flow:
+         * This stage intentionally creates a failure that:
          *
-         * Jenkins FAILURE
-         *      ↓
-         * Rule Classifier → UNKNOWN
-         *      ↓
-         * Ollama
-         *      ↓
-         * AI classification
-         *      ↓
-         * Policy Engine
-         *      ↓
-         * RETRY / ESCALATE
+         * 1. Does NOT contain AUTOHEAL_FLAKY_TEST
+         * 2. Does NOT use the obvious rule signatures
+         * 3. Contains enough evidence for Ollama to diagnose
          *
-         * Remove this stage after Phase 5 validation.
+         * Normal build:
+         *
+         *   AUTOHEAL_RETRY=false
+         *          ↓
+         *   AI Test Failure
+         *          ↓
+         *       FAILURE
+         *
+         * AutoHeal retry:
+         *
+         *   AUTOHEAL_RETRY=true
+         *          ↓
+         *   stage is skipped
+         *          ↓
+         *       pipeline succeeds
          */
         stage('AI Test Failure') {
+
             agent any
 
             when {
@@ -91,13 +101,13 @@ pipeline {
                     echo "CI DIAGNOSTIC FAILURE"
                     echo "component: artifact-consumer"
                     echo "operation: fetch-release-metadata"
-                    echo "remote artifact service returned malformed protocol response"
-                    echo "expected response header: artifact-version"
-                    echo "received response header: <empty>"
-                    echo "request-id: ai-demo-7419"
-                    echo "attempts: 3"
-                    echo "final state: operation aborted"
-                    echo "diagnostic marker: AI_UNKNOWN_CASE_7419"
+                    echo "upstream service response code: HTTP 503"
+                    echo "upstream service status: temporarily unavailable"
+                    echo "health endpoint responded successfully before failure"
+                    echo "release metadata operation aborted"
+                    echo "attempt-count: 3"
+                    echo "final-state: unsuccessful"
+                    echo "diagnostic marker: AI_NETWORK_CASE_7419"
                     exit 1
                 '''
             }
@@ -182,11 +192,13 @@ pipeline {
     post {
         failure {
             script {
+
                 echo "Sending Jenkins failure to AutoHeal..."
 
                 docker.image('curlimages/curl:latest').inside(
                     '--add-host=host.docker.internal:host-gateway'
                 ) {
+
                     sh """
                         curl --fail --silent --show-error \
                             -X POST \
