@@ -58,61 +58,6 @@ pipeline {
                 }
             }
         }
-
-        /*
-         * PHASE 5 — CONTROLLED AI VALIDATION
-         *
-         * The normal test stage succeeds.
-         *
-         * This stage intentionally creates a failure that:
-         *
-         * 1. Does NOT contain AUTOHEAL_FLAKY_TEST
-         * 2. Does NOT use the obvious rule signatures
-         * 3. Contains enough evidence for Ollama to diagnose
-         *
-         * Normal build:
-         *
-         *   AUTOHEAL_RETRY=false
-         *          ↓
-         *   AI Test Failure
-         *          ↓
-         *       FAILURE
-         *
-         * AutoHeal retry:
-         *
-         *   AUTOHEAL_RETRY=true
-         *          ↓
-         *   stage is skipped
-         *          ↓
-         *       pipeline succeeds
-         */
-        stage('AI Test Failure') {
-
-            agent any
-
-            when {
-                expression {
-                    return !params.AUTOHEAL_RETRY
-                }
-            }
-
-            steps {
-                sh '''
-                    echo "CI DIAGNOSTIC FAILURE"
-                    echo "component: artifact-consumer"
-                    echo "operation: fetch-release-metadata"
-                    echo "upstream service response code: HTTP 503"
-                    echo "upstream service status: temporarily unavailable"
-                    echo "health endpoint responded successfully before failure"
-                    echo "release metadata operation aborted"
-                    echo "attempt-count: 3"
-                    echo "final-state: unsuccessful"
-                    echo "diagnostic marker: AI_NETWORK_CASE_7419"
-                    exit 1
-                '''
-            }
-        }
-
         stage('SonarQube Analysis') {
             agent {
                 docker {
