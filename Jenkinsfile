@@ -426,42 +426,43 @@ pipeline {
     // ================================================================
 
     post {
-
         failure {
-
             script {
 
                 echo "Sending Jenkins failure to AutoHeal..."
 
-                docker.image(
-                    'curlimages/curl:latest'
-                ).inside(
+                docker.image('curlimages/curl:latest').inside(
                     '--add-host=host.docker.internal:host-gateway'
                 ) {
 
-                    sh """
-                        HTTP_CODE=\\$(curl \
+                    sh '''
+                        set -eu
+
+                        echo "Calling AutoHeal webhook..."
+
+                        HTTP_CODE=$(curl \
                             --silent \
                             --show-error \
                             -o /tmp/autoheal-response.json \
                             -w "%{http_code}" \
                             -X POST \
                             http://host.docker.internal:8000/webhook/jenkins \
-                            -H 'Content-Type: application/json' \
-                            -H 'X-AutoHeal-Secret: change-me' \
-                            --data-raw '{
-                                "job_name": "${env.JOB_NAME}",
-                                "build_number": ${env.BUILD_NUMBER},
-                                "build_url": "${env.BUILD_URL}",
-                                "status": "FAILURE"
-                            }')
+                            -H "Content-Type: application/json" \
+                            -H "X-AutoHeal-Secret: change-me" \
+                            --data-raw "{
+                                \\"job_name\\": \\"${JOB_NAME}\\",
+                                \\"build_number\\": ${BUILD_NUMBER},
+                                \\"build_url\\": \\"${BUILD_URL}\\",
+                                \\"status\\": \\"FAILURE\\"
+                            }"
+                        )
 
-                        echo "AutoHeal HTTP status: \\${HTTP_CODE}"
+                        echo "AutoHeal HTTP status: ${HTTP_CODE}"
 
                         if [ -f /tmp/autoheal-response.json ]; then
                             cat /tmp/autoheal-response.json
                         fi
-                    """
+                    '''
                 }
             }
         }
