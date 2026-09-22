@@ -30,7 +30,7 @@ pipeline {
         booleanParam(
             name: 'AUTOHEAL_CLEAN_WORKSPACE',
             defaultValue: false,
-            description: 'Clean the Jenkins workspace before retry.'
+            description: 'Clean Jenkins workspace before retry.'
         )
 
         booleanParam(
@@ -54,7 +54,7 @@ pipeline {
         booleanParam(
             name: 'AUTOHEAL_DOCKER_NO_CACHE',
             defaultValue: false,
-            description: 'Build Docker image without using cache.'
+            description: 'Build Docker image without cache.'
         )
 
         booleanParam(
@@ -66,16 +66,16 @@ pipeline {
         string(
             name: 'AUTOHEAL_BACKOFF_SECONDS',
             defaultValue: '0',
-            description: 'Backoff before retry, in seconds.'
+            description: 'Backoff before retry in seconds.'
         )
     }
 
     environment {
-        IMAGE_NAME = "anant2005/calculator"
+        IMAGE_NAME = 'anant2005/calculator'
         IMAGE_TAG  = "${BUILD_NUMBER}"
 
-        // Intentional failure switch for AutoHeal testing
-        AUTOHEAL_TEST = "true"
+        // Used by the intentional AutoHeal test in test_calculator.py
+        AUTOHEAL_TEST = 'true'
     }
 
     stages {
@@ -104,7 +104,7 @@ pipeline {
             agent any
 
             steps {
-                echo "AutoHeal: cleaning Jenkins workspace..."
+                echo 'AutoHeal: cleaning Jenkins workspace...'
 
                 cleanWs(
                     deleteDirs: true,
@@ -112,7 +112,7 @@ pipeline {
                     notFailBuild: false
                 )
 
-                echo "AutoHeal: workspace cleanup completed."
+                echo 'AutoHeal: workspace cleanup completed.'
             }
         }
 
@@ -125,11 +125,11 @@ pipeline {
             agent any
 
             steps {
-                echo "Checking out source code..."
+                echo 'Checking out source code...'
 
                 checkout scm
 
-                echo "Checkout completed."
+                echo 'Checkout completed.'
             }
         }
 
@@ -162,7 +162,7 @@ pipeline {
             }
 
             steps {
-                echo "AutoHeal: preparing clean dependency environment..."
+                echo 'AutoHeal: preparing clean dependency environment...'
 
                 sh '''
                     set -eux
@@ -180,7 +180,7 @@ pipeline {
                     fi
                 '''
 
-                echo "AutoHeal: dependency recovery preparation completed."
+                echo 'AutoHeal: dependency recovery preparation completed.'
             }
         }
 
@@ -227,7 +227,7 @@ pipeline {
                         )
                     }
 
-                    echo "AutoHeal: checking network connectivity..."
+                    echo 'AutoHeal: checking network connectivity...'
 
                     sh '''
                         set +e
@@ -236,7 +236,6 @@ pipeline {
                         getent hosts github.com || true
 
                         echo "Checking HTTPS connectivity..."
-
                         curl \
                             --silent \
                             --show-error \
@@ -268,7 +267,8 @@ pipeline {
             }
 
             steps {
-                echo "Running Python tests..."
+
+                echo 'Running Python tests...'
 
                 script {
                     python_test(
@@ -282,7 +282,9 @@ pipeline {
             }
 
             post {
+
                 always {
+
                     junit(
                         testResults: 'report.xml',
                         allowEmptyResults: true
@@ -305,7 +307,9 @@ pipeline {
             agent any
 
             steps {
+
                 script {
+
                     sonarqube_analysis(
                         server: 'SonarQube',
                         scanner: 'sonar-scanner'
@@ -328,7 +332,7 @@ pipeline {
 
                     if (params.AUTOHEAL_DOCKER_NO_CACHE) {
 
-                        echo "AutoHeal: Docker cache invalidation requested."
+                        echo 'AutoHeal: Docker no-cache recovery requested.'
 
                         sh """
                             docker build \
@@ -349,7 +353,7 @@ pipeline {
         }
 
         // ============================================================
-        // TRIVY
+        // TRIVY SECURITY SCAN
         // ============================================================
 
         stage('Trivy Security Scan') {
@@ -393,14 +397,14 @@ pipeline {
     }
 
     // ================================================================
-    // AUTOHEAL WEBHOOK
+    // AUTOHEAL FAILURE WEBHOOK
     // ================================================================
 
     post {
 
         failure {
 
-            node {
+            node('built-in') {
 
                 script {
 
@@ -419,10 +423,10 @@ pipeline {
                                 -H "Content-Type: application/json" \
                                 -H "X-AutoHeal-Secret: change-me" \
                                 --data-raw "{
-                                    "job_name": "${JOB_NAME}",
-                                    "build_number": ${BUILD_NUMBER},
-                                    "build_url": "${BUILD_URL}",
-                                    "status": "FAILURE"
+                                    \\"job_name\\": \\"${JOB_NAME}\\",
+                                    \\"build_number\\": ${BUILD_NUMBER},
+                                    \\"build_url\\": \\"${BUILD_URL}\\",
+                                    \\"status\\": \\"FAILURE\\"
                                 }"
                             )
 
