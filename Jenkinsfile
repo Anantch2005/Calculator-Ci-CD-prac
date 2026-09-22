@@ -1,4 +1,3 @@
-```groovy
 @Library('Shared') _
 
 pipeline {
@@ -573,4 +572,3 @@ pipeline {
         }
     }
 }
-```
