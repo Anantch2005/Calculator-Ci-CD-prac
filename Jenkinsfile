@@ -19,10 +19,12 @@ pipeline {
             name: 'AUTOHEAL_ACTION',
             choices: [
                 'NONE',
+                'RETRY_FLAKY_TEST',
                 'CLEAN_WORKSPACE',
                 'CLEAN_DEPENDENCY_ENV',
                 'INVALIDATE_DOCKER_CACHE',
-                'CONNECTIVITY_CHECK_BACKOFF'
+                'CONNECTIVITY_CHECK_BACKOFF',
+                'RETRY_REGISTRY'
             ],
             description: 'Internal AutoHeal remediation action.'
         )
