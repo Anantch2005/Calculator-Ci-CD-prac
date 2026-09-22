@@ -97,9 +97,8 @@ pipeline {
         IMAGE_TAG = "${BUILD_NUMBER}"
 
         /*
-         * This is intentionally enabled for your Calculator AutoHeal
-         * demonstration. The test_calculator.py file uses this variable
-         * to create the controlled failure on a normal build.
+         * Used by Calculator test_calculator.py to generate the
+         * controlled AutoHeal demo failure on normal builds.
          */
         AUTOHEAL_TEST = "true"
     }
@@ -139,12 +138,14 @@ pipeline {
                         set -eu
 
                         getent hosts registry-1.docker.io
+
+                        echo "DNS resolution successful."
                     '''
 
                     echo "Checking Docker Hub registry..."
 
                     sh '''
-                        set +e
+                        set -eu
 
                         HTTP_CODE=$(curl \
                             --silent \
@@ -154,17 +155,7 @@ pipeline {
                             --max-time 10 \
                             https://registry-1.docker.io/v2/)
 
-                        CURL_STATUS=$?
-
-                        set -e
-
-                        echo "Curl exit status: ${CURL_STATUS}"
                         echo "Docker registry HTTP status: ${HTTP_CODE}"
-
-                        if [ "${CURL_STATUS}" -ne 0 ]; then
-                            echo "Docker registry connectivity check failed."
-                            exit 1
-                        fi
 
                         case "${HTTP_CODE}" in
 
@@ -173,15 +164,13 @@ pipeline {
                                 ;;
 
                             *)
-                                echo "Docker registry returned unexpected status."
+                                echo "Docker registry connectivity check failed."
                                 exit 1
                                 ;;
                         esac
                     '''
 
-                    if (
-                        params.AUTOHEAL_BACKOFF_SECONDS?.isInteger()
-                    ) {
+                    if (params.AUTOHEAL_BACKOFF_SECONDS?.isInteger()) {
 
                         int seconds =
                             params.AUTOHEAL_BACKOFF_SECONDS.toInteger()
@@ -236,7 +225,6 @@ pipeline {
                     echo "Workspace cleanup completed."
 
                     if (params.AUTOHEAL_FRESH_CHECKOUT) {
-
                         echo "Fresh checkout requested by AutoHeal."
                     }
                 }
@@ -259,7 +247,6 @@ pipeline {
                         params.AUTOHEAL_RETRY &&
                         params.AUTOHEAL_FRESH_CHECKOUT
                     ) {
-
                         echo "AutoHeal: performing fresh checkout."
                     }
 
@@ -289,7 +276,7 @@ pipeline {
                 script {
 
                     echo "========================================"
-                    echo "Test"
+                    echo "Python Test"
                     echo "========================================"
 
                     // ====================================================
@@ -305,7 +292,7 @@ pipeline {
                         echo "AutoHeal Dependency Recovery"
                         echo "========================================"
 
-                        echo "Clearing dependency environment/cache..."
+                        echo "Clearing Python dependency environment..."
 
                         sh '''
                             set -eu
@@ -323,7 +310,7 @@ pipeline {
                         params.AUTOHEAL_INSTALL_FROM_LOCKFILE
                     ) {
 
-                        echo "AutoHeal: performing clean dependency installation."
+                        echo "AutoHeal: installing dependencies from repository definition."
 
                         sh '''
                             set -eu
@@ -400,10 +387,6 @@ pipeline {
                     echo "Build Docker Image"
                     echo "========================================"
 
-                    // ====================================================
-                    // AUTOHEAL DOCKER RECOVERY
-                    // ====================================================
-
                     if (
                         params.AUTOHEAL_RETRY &&
                         params.AUTOHEAL_DOCKER_NO_CACHE
@@ -417,14 +400,14 @@ pipeline {
 
                         echo "Invalidating Docker build cache..."
 
-                        sh """
+                        sh '''
                             set -eu
 
                             docker build \
                                 --no-cache \
-                                -t ${IMAGE_NAME}:${IMAGE_TAG} \
+                                -t "${IMAGE_NAME}:${IMAGE_TAG}" \
                                 .
-                        """
+                        '''
 
                         echo "Docker no-cache rebuild completed."
 
@@ -515,14 +498,14 @@ pipeline {
                  *
                  *     127.0.0.1:8000
                  *
-                 * Therefore Jenkins calls AutoHeal directly through
-                 * localhost instead of starting another curl container.
+                 * Use Jenkins environment variables directly inside
+                 * the shell instead of Groovy interpolation.
                  */
 
-                sh """
+                sh '''
                     set +e
 
-                    HTTP_CODE=\\$(curl \
+                    HTTP_CODE=$(curl \
                         --silent \
                         --show-error \
                         --output /tmp/autoheal-response.json \
@@ -530,16 +513,16 @@ pipeline {
                         --max-time 15 \
                         -X POST \
                         http://127.0.0.1:8000/webhook/jenkins \
-                        -H 'Content-Type: application/json' \
-                        -H 'X-AutoHeal-Secret: change-me' \
-                        --data-raw '{
-                            "job_name": "${env.JOB_NAME}",
-                            "build_number": ${env.BUILD_NUMBER},
-                            "build_url": "${env.BUILD_URL}",
-                            "status": "FAILURE"
-                        }')
+                        -H "Content-Type: application/json" \
+                        -H "X-AutoHeal-Secret: change-me" \
+                        --data-raw "{
+                            \"job_name\": \"${JOB_NAME}\",
+                            \"build_number\": ${BUILD_NUMBER},
+                            \"build_url\": \"${BUILD_URL}\",
+                            \"status\": \"FAILURE\"
+                        }")
 
-                    echo "AutoHeal HTTP status: \\${HTTP_CODE}"
+                    echo "AutoHeal HTTP status: ${HTTP_CODE}"
 
                     if [ -f /tmp/autoheal-response.json ]; then
 
@@ -548,13 +531,13 @@ pipeline {
                         cat /tmp/autoheal-response.json
                     fi
 
-                    if [ "\\${HTTP_CODE}" = "000" ]; then
+                    if [ "${HTTP_CODE}" = "000" ]; then
 
                         echo "WARNING: AutoHeal webhook could not be reached."
 
-                    elif [ "\\${HTTP_CODE}" != "200" ]; then
+                    elif [ "${HTTP_CODE}" != "200" ]; then
 
-                        echo "WARNING: AutoHeal returned HTTP status \\${HTTP_CODE}"
+                        echo "WARNING: AutoHeal returned HTTP status ${HTTP_CODE}"
 
                     else
 
@@ -563,11 +546,11 @@ pipeline {
                     fi
 
                     /*
-                     * Do not replace the original Jenkins failure with
-                     * a webhook failure.
+                     * Never replace the original Jenkins failure with
+                     * a failure caused by the notification mechanism.
                      */
                     exit 0
-                """
+                '''
             }
         }
     }
