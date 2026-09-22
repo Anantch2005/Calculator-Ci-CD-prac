@@ -8,6 +8,7 @@ pipeline {
     }
 
     parameters {
+
         booleanParam(
             name: 'AUTOHEAL_RETRY',
             defaultValue: false,
@@ -71,8 +72,9 @@ pipeline {
 
     environment {
         IMAGE_NAME = "anant2005/calculator"
-        IMAGE_TAG = "${BUILD_NUMBER}"
+        IMAGE_TAG  = "${BUILD_NUMBER}"
 
+        // Intentional failure switch for AutoHeal testing
         AUTOHEAL_TEST = "true"
     }
 
@@ -83,11 +85,15 @@ pipeline {
         // ============================================================
 
         stage('AutoHeal - Workspace Recovery') {
+
             when {
+                beforeAgent true
+
                 allOf {
                     expression {
                         params.AUTOHEAL_RETRY
                     }
+
                     expression {
                         params.AUTOHEAL_ACTION == 'CLEAN_WORKSPACE' ||
                         params.AUTOHEAL_CLEAN_WORKSPACE
@@ -111,15 +117,36 @@ pipeline {
         }
 
         // ============================================================
+        // CHECKOUT
+        // ============================================================
+
+        stage('Checkout') {
+
+            agent any
+
+            steps {
+                echo "Checking out source code..."
+
+                checkout scm
+
+                echo "Checkout completed."
+            }
+        }
+
+        // ============================================================
         // AUTOHEAL DEPENDENCY RECOVERY
         // ============================================================
 
         stage('AutoHeal - Dependency Recovery') {
+
             when {
+                beforeAgent true
+
                 allOf {
                     expression {
                         params.AUTOHEAL_RETRY
                     }
+
                     expression {
                         params.AUTOHEAL_ACTION == 'CLEAN_DEPENDENCY_ENV' ||
                         params.AUTOHEAL_CLEAN_DEPENDENCY_ENV
@@ -149,13 +176,7 @@ pipeline {
                     python -m pip install --upgrade pip
 
                     if [ -f requirements.txt ]; then
-                        if [ "${AUTOHEAL_INSTALL_FROM_LOCKFILE}" = "true" ]; then
-                            echo "AutoHeal: installing dependencies from requirements file."
-                            pip install -r requirements.txt
-                        else
-                            echo "AutoHeal: installing dependencies."
-                            pip install -r requirements.txt
-                        fi
+                        pip install -r requirements.txt
                     fi
                 '''
 
@@ -168,11 +189,15 @@ pipeline {
         // ============================================================
 
         stage('AutoHeal - Network Recovery') {
+
             when {
+                beforeAgent true
+
                 allOf {
                     expression {
                         params.AUTOHEAL_RETRY
                     }
+
                     expression {
                         params.AUTOHEAL_ACTION == 'CONNECTIVITY_CHECK_BACKOFF' ||
                         params.AUTOHEAL_CONNECTIVITY_CHECK
@@ -195,7 +220,11 @@ pipeline {
 
                     if (backoff > 0) {
                         echo "AutoHeal: waiting ${backoff} seconds before retry..."
-                        sleep time: backoff, unit: 'SECONDS'
+
+                        sleep(
+                            time: backoff,
+                            unit: 'SECONDS'
+                        )
                     }
 
                     echo "AutoHeal: checking network connectivity..."
@@ -207,7 +236,11 @@ pipeline {
                         getent hosts github.com || true
 
                         echo "Checking HTTPS connectivity..."
-                        curl --silent --show-error --max-time 10 \
+
+                        curl \
+                            --silent \
+                            --show-error \
+                            --max-time 10 \
                             https://github.com \
                             -o /dev/null
 
@@ -220,5 +253,202 @@ pipeline {
                 }
             }
         }
+
+        // ============================================================
+        // TEST
+        // ============================================================
+
+        stage('Test') {
+
+            agent {
+                docker {
+                    image 'python:3.12'
+                    args '-u root:root'
+                }
+            }
+
+            steps {
+                echo "Running Python tests..."
+
+                script {
+                    python_test(
+                        requirements: 'requirements.txt',
+                        testCommand: 'pytest',
+                        junitReport: 'report.xml',
+                        coverage: true,
+                        coverageFile: 'coverage.xml'
+                    )
+                }
+            }
+
+            post {
+                always {
+                    junit(
+                        testResults: 'report.xml',
+                        allowEmptyResults: true
+                    )
+
+                    archiveArtifacts(
+                        artifacts: 'coverage.xml',
+                        allowEmptyArchive: true
+                    )
+                }
+            }
+        }
+
+        // ============================================================
+        // SONARQUBE
+        // ============================================================
+
+        stage('SonarQube Analysis') {
+
+            agent any
+
+            steps {
+                script {
+                    sonarqube_analysis(
+                        server: 'SonarQube',
+                        scanner: 'sonar-scanner'
+                    )
+                }
+            }
+        }
+
+        // ============================================================
+        // DOCKER BUILD
+        // ============================================================
+
+        stage('Docker Build') {
+
+            agent any
+
+            steps {
+
+                script {
+
+                    if (params.AUTOHEAL_DOCKER_NO_CACHE) {
+
+                        echo "AutoHeal: Docker cache invalidation requested."
+
+                        sh """
+                            docker build \
+                                --no-cache \
+                                -t ${IMAGE_NAME}:${IMAGE_TAG} \
+                                .
+                        """
+
+                    } else {
+
+                        docker_build(
+                            image: IMAGE_NAME,
+                            tag: IMAGE_TAG
+                        )
+                    }
+                }
+            }
+        }
+
+        // ============================================================
+        // TRIVY
+        // ============================================================
+
+        stage('Trivy Security Scan') {
+
+            agent any
+
+            steps {
+
+                script {
+
+                    trivy_scan(
+                        image: IMAGE_NAME,
+                        tag: IMAGE_TAG,
+                        severity: 'CRITICAL,HIGH',
+                        exitCode: '0'
+                    )
+                }
+            }
+        }
+
+        // ============================================================
+        // DOCKER PUSH
+        // ============================================================
+
+        stage('Docker Push') {
+
+            agent any
+
+            steps {
+
+                script {
+
+                    docker_push(
+                        image: IMAGE_NAME,
+                        tag: IMAGE_TAG,
+                        credentialsId: 'dockerhub-creds'
+                    )
+                }
+            }
+        }
     }
-}        
+
+    // ================================================================
+    // AUTOHEAL WEBHOOK
+    // ================================================================
+
+    post {
+
+        failure {
+
+            node {
+
+                script {
+
+                    sh(
+                        script: '''
+                            set +e
+
+                            HTTP_CODE=$(curl \
+                                --silent \
+                                --show-error \
+                                --output /tmp/autoheal-response.json \
+                                --write-out "%{http_code}" \
+                                --max-time 15 \
+                                -X POST \
+                                http://127.0.0.1:8000/webhook/jenkins \
+                                -H "Content-Type: application/json" \
+                                -H "X-AutoHeal-Secret: change-me" \
+                                --data-raw "{
+                                    "job_name": "${JOB_NAME}",
+                                    "build_number": ${BUILD_NUMBER},
+                                    "build_url": "${BUILD_URL}",
+                                    "status": "FAILURE"
+                                }"
+                            )
+
+                            echo "AutoHeal HTTP status: ${HTTP_CODE}"
+
+                            if [ -f /tmp/autoheal-response.json ]; then
+                                echo "AutoHeal response:"
+                                cat /tmp/autoheal-response.json
+                            fi
+
+                            if [ "${HTTP_CODE}" = "000" ]; then
+                                echo "WARNING: AutoHeal webhook could not be reached."
+
+                            elif [ "${HTTP_CODE}" != "200" ]; then
+                                echo "WARNING: AutoHeal returned HTTP ${HTTP_CODE}"
+
+                            else
+                                echo "AutoHeal successfully received the failure."
+                            fi
+
+                            exit 0
+                        ''',
+                        label: 'Notify AutoHeal'
+                    )
+                }
+            }
+        }
+    }
+}
