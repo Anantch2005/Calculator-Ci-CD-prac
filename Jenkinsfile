@@ -333,7 +333,10 @@ pipeline {
             agent {
                 docker {
                     image 'docker:28-cli'
-                    args '-u root:root'
+                    args '''
+                        -u root:root
+                        -v /var/run/docker.sock:/var/run/docker.sock
+                    '''
                 }
             }
 
@@ -403,7 +406,10 @@ pipeline {
             agent {
                 docker {
                     image 'docker:28-cli'
-                    args '-u root:root'
+                    args '''
+                        -u root:root
+                        -v /var/run/docker.sock:/var/run/docker.sock
+                    '''
                 }
             }
 
