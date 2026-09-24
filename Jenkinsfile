@@ -420,7 +420,7 @@ pipeline {
                     docker_push(
                         image: IMAGE_NAME,
                         tag: IMAGE_TAG,
-                        credentialsId: 'dockerhub-creds'
+                        credentialsId: 'dockerhub'
                     )
                 }
             }
