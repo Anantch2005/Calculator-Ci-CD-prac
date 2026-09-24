@@ -332,7 +332,7 @@ pipeline {
 
             agent {
                 docker {
-                    image 'python:3.12'
+                    image 'docker:28-cli'
                     args '-u root:root'
                 }
             }
@@ -402,7 +402,7 @@ pipeline {
 
             agent {
                 docker {
-                    image 'python:3.12'
+                    image 'docker:28-cli'
                     args '-u root:root'
                 }
             }
