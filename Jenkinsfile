@@ -306,8 +306,12 @@ pipeline {
 
         stage('SonarQube Analysis') {
 
-            agent any
-
+            agent {
+                docker {
+                    image 'sonarsource/sonar-scanner-cli:latest'
+                    args '-u root:root'
+                }
+            }
             steps {
 
                 script {
@@ -326,7 +330,12 @@ pipeline {
 
         stage('Docker Build') {
 
-            agent any
+            agent {
+                docker {
+                    image 'python:3.12'
+                    args '-u root:root'
+                }
+            }
 
             steps {
 
@@ -360,7 +369,16 @@ pipeline {
 
         stage('Trivy Security Scan') {
 
-            agent any
+            agent {
+                docker {
+                    image 'aquasec/trivy:latest'
+                    args '''
+                    --entrypoint=''
+                    -u root:root
+                    -v /var/run/docker.sock:/var/run/docker.sock
+                    '''
+                }
+            }
 
             steps {
 
@@ -382,7 +400,12 @@ pipeline {
 
         stage('Docker Push') {
 
-            agent any
+            agent {
+                docker {
+                    image 'python:3.12'
+                    args '-u root:root'
+                }
+            }
 
             steps {
 
