@@ -73,7 +73,7 @@ pipeline {
     }
 
     environment {
-        IMAGE_NAME = 'anant2005/calculator'
+        IMAGE_NAME = 'anant2005ch/calculator'
         IMAGE_TAG  = "${BUILD_NUMBER}"
 
         // Used by the intentional AutoHeal test in test_calculator.py
