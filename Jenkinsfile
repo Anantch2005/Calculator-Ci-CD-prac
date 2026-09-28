@@ -83,42 +83,6 @@ pipeline {
     stages {
 
         // ============================================================
-        // AUTOHEAL WORKSPACE RECOVERY
-        // ============================================================
-
-        stage('AutoHeal - Workspace Recovery') {
-
-            when {
-                beforeAgent true
-
-                allOf {
-                    expression {
-                        params.AUTOHEAL_RETRY
-                    }
-
-                    expression {
-                        params.AUTOHEAL_ACTION == 'CLEAN_WORKSPACE' ||
-                        params.AUTOHEAL_CLEAN_WORKSPACE
-                    }
-                }
-            }
-
-            agent any
-
-            steps {
-                echo 'AutoHeal: cleaning Jenkins workspace...'
-
-                cleanWs(
-                    deleteDirs: true,
-                    disableDeferredWipeout: true,
-                    notFailBuild: false
-                )
-
-                echo 'AutoHeal: workspace cleanup completed.'
-            }
-        }
-
-        // ============================================================
         // CHECKOUT
         // ============================================================
 
@@ -127,130 +91,41 @@ pipeline {
             agent any
 
             steps {
-                echo 'Checking out source code...'
 
-                checkout scm
-
-                echo 'Checkout completed.'
-            }
-        }
-
-        // ============================================================
-        // AUTOHEAL DEPENDENCY RECOVERY
-        // ============================================================
-
-        stage('AutoHeal - Dependency Recovery') {
-
-            when {
-                beforeAgent true
-
-                allOf {
-                    expression {
-                        params.AUTOHEAL_RETRY
-                    }
-
-                    expression {
-                        params.AUTOHEAL_ACTION == 'CLEAN_DEPENDENCY_ENV' ||
-                        params.AUTOHEAL_CLEAN_DEPENDENCY_ENV
-                    }
-                }
-            }
-
-            agent {
-                docker {
-                    image 'python:3.12'
-                    args '-u root:root'
-                }
-            }
-
-            steps {
-                echo 'AutoHeal: preparing clean dependency environment...'
-
-                sh '''
-                    set -eux
-
-                    rm -rf .venv
-
-                    python -m venv .venv
-
-                    . .venv/bin/activate
-
-                    python -m pip install --upgrade pip
-
-                    if [ -f requirements.txt ]; then
-                        pip install -r requirements.txt
-                    fi
-                '''
-
-                echo 'AutoHeal: dependency recovery preparation completed.'
-            }
-        }
-
-        // ============================================================
-        // AUTOHEAL NETWORK RECOVERY
-        // ============================================================
-
-        stage('AutoHeal - Network Recovery') {
-
-            when {
-                beforeAgent true
-
-                allOf {
-                    expression {
-                        params.AUTOHEAL_RETRY
-                    }
-
-                    expression {
-                        params.AUTOHEAL_ACTION == 'CONNECTIVITY_CHECK_BACKOFF' ||
-                        params.AUTOHEAL_CONNECTIVITY_CHECK
-                    }
-                }
-            }
-
-            agent any
-
-            steps {
                 script {
 
-                    int backoff = 0
+                    // ==================================================
+                    // AUTOHEAL WORKSPACE RECOVERY
+                    // Only created during an AutoHeal retry
+                    // ==================================================
 
-                    try {
-                        backoff = params.AUTOHEAL_BACKOFF_SECONDS.toInteger()
-                    } catch (Exception ignored) {
-                        backoff = 0
-                    }
-
-                    if (backoff > 0) {
-                        echo "AutoHeal: waiting ${backoff} seconds before retry..."
-
-                        sleep(
-                            time: backoff,
-                            unit: 'SECONDS'
+                    if (
+                        params.AUTOHEAL_RETRY &&
+                        (
+                            params.AUTOHEAL_ACTION == 'CLEAN_WORKSPACE' ||
+                            params.AUTOHEAL_CLEAN_WORKSPACE
                         )
+                    ) {
+
+                        stage('AutoHeal - Workspace Recovery') {
+
+                            echo 'AutoHeal: cleaning Jenkins workspace...'
+
+                            cleanWs(
+                                deleteDirs: true,
+                                disableDeferredWipeout: true,
+                                notFailBuild: false
+                            )
+
+                            echo 'AutoHeal: workspace cleanup completed.'
+                        }
                     }
 
-                    echo 'AutoHeal: checking network connectivity...'
+                    echo 'Checking out source code...'
 
-                    sh '''
-                        set +e
+                    checkout scm
 
-                        echo "Checking DNS..."
-                        getent hosts github.com || true
-
-                        echo "Checking HTTPS connectivity..."
-                        curl \
-                            --silent \
-                            --show-error \
-                            --max-time 10 \
-                            https://github.com \
-                            -o /dev/null
-
-                        STATUS=$?
-
-                        echo "Connectivity check exit code: ${STATUS}"
-
-                        exit 0
-                    '''
+                    echo 'Checkout completed.'
                 }
             }
         }
@@ -270,9 +145,110 @@ pipeline {
 
             steps {
 
-                echo 'Running Python tests...'
-
                 script {
+
+                    // ==================================================
+                    // AUTOHEAL DEPENDENCY RECOVERY
+                    // Only created during an AutoHeal retry
+                    // ==================================================
+
+                    if (
+                        params.AUTOHEAL_RETRY &&
+                        (
+                            params.AUTOHEAL_ACTION == 'CLEAN_DEPENDENCY_ENV' ||
+                            params.AUTOHEAL_CLEAN_DEPENDENCY_ENV
+                        )
+                    ) {
+
+                        stage('AutoHeal - Dependency Recovery') {
+
+                            echo 'AutoHeal: preparing clean dependency environment...'
+
+                            sh '''
+                                set -eux
+
+                                rm -rf .venv
+
+                                python -m venv .venv
+
+                                . .venv/bin/activate
+
+                                python -m pip install --upgrade pip
+
+                                if [ -f requirements.txt ]; then
+                                    pip install -r requirements.txt
+                                fi
+                            '''
+
+                            echo 'AutoHeal: dependency recovery preparation completed.'
+                        }
+                    }
+
+                    // ==================================================
+                    // AUTOHEAL NETWORK RECOVERY
+                    // Only created during an AutoHeal retry
+                    // ==================================================
+
+                    if (
+                        params.AUTOHEAL_RETRY &&
+                        (
+                            params.AUTOHEAL_ACTION == 'CONNECTIVITY_CHECK_BACKOFF' ||
+                            params.AUTOHEAL_CONNECTIVITY_CHECK
+                        )
+                    ) {
+
+                        stage('AutoHeal - Network Recovery') {
+
+                            int backoff = 0
+
+                            try {
+                                backoff = params.AUTOHEAL_BACKOFF_SECONDS.toInteger()
+                            } catch (Exception ignored) {
+                                backoff = 0
+                            }
+
+                            if (backoff > 0) {
+
+                                echo "AutoHeal: waiting ${backoff} seconds before retry..."
+
+                                sleep(
+                                    time: backoff,
+                                    unit: 'SECONDS'
+                                )
+                            }
+
+                            echo 'AutoHeal: checking network connectivity...'
+
+                            sh '''
+                                set +e
+
+                                echo "Checking DNS..."
+                                getent hosts github.com || true
+
+                                echo "Checking HTTPS connectivity..."
+
+                                curl \
+                                    --silent \
+                                    --show-error \
+                                    --max-time 10 \
+                                    https://github.com \
+                                    -o /dev/null
+
+                                STATUS=$?
+
+                                echo "Connectivity check exit code: ${STATUS}"
+
+                                exit 0
+                            '''
+                        }
+                    }
+
+                    // ==================================================
+                    // EXISTING TEST EXECUTION
+                    // ==================================================
+
+                    echo 'Running Python tests...'
+
                     python_test(
                         requirements: 'requirements.txt',
                         testCommand: 'pytest',
@@ -312,6 +288,7 @@ pipeline {
                     args '-u root:root'
                 }
             }
+
             steps {
 
                 script {
