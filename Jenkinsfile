@@ -24,6 +24,7 @@ pipeline {
                 'CLEAN_DEPENDENCY_ENV',
                 'INVALIDATE_DOCKER_CACHE',
                 'CONNECTIVITY_CHECK_BACKOFF',
+                'CONNECTIVITY_CHECK_BACKOFF_AND_RETRY',
                 'RETRY_REGISTRY'
             ],
             description: 'Internal AutoHeal remediation action.'
@@ -87,8 +88,8 @@ pipeline {
     }
 
     environment {
-        IMAGE_NAME = 'anant2005ch/calculator'
-        IMAGE_TAG  = "${BUILD_NUMBER}"
+        IMAGE_NAME  = 'anant2005ch/calculator'
+        IMAGE_TAG   = "${BUILD_NUMBER}"
         AUTOHEAL_TEST = 'true'
     }
 
@@ -103,6 +104,92 @@ pipeline {
                 script {
 
                     /*
+                     * Debug AutoHeal parameters.
+                     * This makes it easy to verify what Jenkins received.
+                     */
+                    if (params.AUTOHEAL_RETRY) {
+
+                        echo '========== AutoHeal Retry Parameters =========='
+                        echo "AUTOHEAL_RETRY: ${params.AUTOHEAL_RETRY}"
+                        echo "AUTOHEAL_ACTION: ${params.AUTOHEAL_ACTION}"
+                        echo "AUTOHEAL_CLEAN_WORKSPACE: ${params.AUTOHEAL_CLEAN_WORKSPACE}"
+                        echo "AUTOHEAL_FRESH_CHECKOUT: ${params.AUTOHEAL_FRESH_CHECKOUT}"
+                        echo "AUTOHEAL_CLEAN_DEPENDENCY_ENV: ${params.AUTOHEAL_CLEAN_DEPENDENCY_ENV}"
+                        echo "AUTOHEAL_DOCKER_NO_CACHE: ${params.AUTOHEAL_DOCKER_NO_CACHE}"
+                        echo "AUTOHEAL_CONNECTIVITY_CHECK: ${params.AUTOHEAL_CONNECTIVITY_CHECK}"
+                        echo "AUTOHEAL_BACKOFF_SECONDS: ${params.AUTOHEAL_BACKOFF_SECONDS}"
+                        echo '==============================================='
+                    }
+
+                    /*
+                     * AutoHeal network recovery.
+                     *
+                     * IMPORTANT:
+                     * This stage is intentionally BEFORE checkout.
+                     * A real network failure can prevent Git checkout,
+                     * so recovery must happen before checkout starts.
+                     */
+                    if (
+                        params.AUTOHEAL_RETRY &&
+                        (
+                            params.AUTOHEAL_ACTION == 'CONNECTIVITY_CHECK_BACKOFF' ||
+                            params.AUTOHEAL_ACTION == 'CONNECTIVITY_CHECK_BACKOFF_AND_RETRY' ||
+                            params.AUTOHEAL_CONNECTIVITY_CHECK
+                        )
+                    ) {
+
+                        stage('AutoHeal - Network Recovery') {
+
+                            int backoff = 0
+
+                            try {
+                                backoff = params.AUTOHEAL_BACKOFF_SECONDS.toInteger()
+                            } catch (Exception ignored) {
+                                backoff = 0
+                            }
+
+                            if (backoff > 0) {
+
+                                echo "AutoHeal: waiting ${backoff} seconds before retry..."
+
+                                sleep(
+                                    time: backoff,
+                                    unit: 'SECONDS'
+                                )
+                            }
+
+                            echo 'AutoHeal: checking network connectivity...'
+
+                            sh '''
+                                set +e
+
+                                echo "Checking DNS..."
+                                getent hosts github.com || true
+
+                                echo "Checking HTTPS connectivity..."
+
+                                curl \
+                                    --silent \
+                                    --show-error \
+                                    --max-time 10 \
+                                    https://github.com \
+                                    -o /dev/null
+
+                                STATUS=$?
+
+                                echo "Connectivity check exit code: ${STATUS}"
+
+                                # Connectivity check is advisory.
+                                # The actual retry continues so Jenkins can
+                                # verify whether connectivity has recovered.
+                                exit 0
+                            '''
+
+                            echo 'AutoHeal: network recovery preparation completed.'
+                        }
+                    }
+
+                    /*
                      * AutoHeal workspace recovery.
                      *
                      * Only exists during an AutoHeal retry.
@@ -111,7 +198,8 @@ pipeline {
                         params.AUTOHEAL_RETRY &&
                         (
                             params.AUTOHEAL_ACTION == 'CLEAN_WORKSPACE' ||
-                            params.AUTOHEAL_CLEAN_WORKSPACE
+                            params.AUTOHEAL_CLEAN_WORKSPACE ||
+                            params.AUTOHEAL_FRESH_CHECKOUT
                         )
                     ) {
 
@@ -159,11 +247,6 @@ pipeline {
             agent {
                 docker {
                     image 'python:3.12'
-
-                    /*
-                     * Keep the current setup for now.
-                     * Workspace recovery is handled by deleteDir().
-                     */
                     args '-u root:root'
                 }
             }
@@ -172,6 +255,9 @@ pipeline {
 
                 script {
 
+                    /*
+                     * AutoHeal dependency recovery.
+                     */
                     if (
                         params.AUTOHEAL_RETRY &&
                         (
@@ -204,61 +290,6 @@ pipeline {
                         }
                     }
 
-                    if (
-                        params.AUTOHEAL_RETRY &&
-                        (
-                            params.AUTOHEAL_ACTION == 'CONNECTIVITY_CHECK_BACKOFF' ||
-                            params.AUTOHEAL_CONNECTIVITY_CHECK
-                        )
-                    ) {
-
-                        stage('AutoHeal - Network Recovery') {
-
-                            int backoff = 0
-
-                            try {
-                                backoff =
-                                    params.AUTOHEAL_BACKOFF_SECONDS.toInteger()
-                            } catch (Exception ignored) {
-                                backoff = 0
-                            }
-
-                            if (backoff > 0) {
-
-                                echo "AutoHeal: waiting ${backoff} seconds before retry..."
-
-                                sleep(
-                                    time: backoff,
-                                    unit: 'SECONDS'
-                                )
-                            }
-
-                            echo 'AutoHeal: checking network connectivity...'
-
-                            sh '''
-                                set +e
-
-                                echo "Checking DNS..."
-                                getent hosts github.com || true
-
-                                echo "Checking HTTPS connectivity..."
-
-                                curl \
-                                    --silent \
-                                    --show-error \
-                                    --max-time 10 \
-                                    https://github.com \
-                                    -o /dev/null
-
-                                STATUS=$?
-
-                                echo "Connectivity check exit code: ${STATUS}"
-
-                                exit 0
-                            '''
-                        }
-                    }
-
                     /*
                      * Controlled dependency failure.
                      */
@@ -277,6 +308,9 @@ pipeline {
 
                     /*
                      * Controlled network failure.
+                     *
+                     * This is deliberately injected only into the
+                     * initial test build, never the AutoHeal retry.
                      */
                     if (
                         !params.AUTOHEAL_RETRY &&
@@ -358,6 +392,9 @@ pipeline {
 
                 script {
 
+                    /*
+                     * Controlled Docker failure.
+                     */
                     if (
                         !params.AUTOHEAL_RETRY &&
                         params.AUTOHEAL_TEST_FAILURE == 'DOCKER_FAILURE'
@@ -371,9 +408,16 @@ pipeline {
                         '''
                     }
 
+                    /*
+                     * AutoHeal Docker recovery.
+                     *
+                     * The actual recovery is the --no-cache build.
+                     */
                     if (params.AUTOHEAL_DOCKER_NO_CACHE) {
 
                         echo 'AutoHeal: Docker no-cache recovery requested.'
+                        echo 'AutoHeal: invalidating Docker build cache.'
+                        echo 'AutoHeal: rebuilding image with --no-cache.'
 
                         sh """
                             docker build \
@@ -438,6 +482,9 @@ pipeline {
 
                 script {
 
+                    /*
+                     * Controlled registry failure.
+                     */
                     if (
                         !params.AUTOHEAL_RETRY &&
                         params.AUTOHEAL_TEST_FAILURE == 'REGISTRY_FAILURE'
@@ -483,6 +530,7 @@ pipeline {
                             script: '''
                                 set +e
 
+                                # Prevent stale responses from previous webhook calls.
                                 rm -f /tmp/autoheal-response.json
 
                                 HTTP_CODE=$(curl \
@@ -495,12 +543,14 @@ pipeline {
                                     http://127.0.0.1:8000/webhook/jenkins \
                                     -H "Content-Type: application/json" \
                                     -H "X-AutoHeal-Secret: change-me" \
-                                    --data-raw "{
-                                        \\"job_name\\": \\"${JOB_NAME}\\",
-                                        \\"build_number\\": ${BUILD_NUMBER},
-                                        \\"build_url\\": \\"${BUILD_URL}\\",
-                                        \\"status\\": \\"FAILURE\\"
-                                    }"
+                                    --data-binary @- <<EOF
+{
+    "job_name": "${JOB_NAME}",
+    "build_number": ${BUILD_NUMBER},
+    "build_url": "${BUILD_URL}",
+    "status": "FAILURE"
+}
+EOF
                                 )
 
                                 echo "AutoHeal HTTP status: ${HTTP_CODE}"
