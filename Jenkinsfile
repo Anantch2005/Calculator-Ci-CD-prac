@@ -88,13 +88,18 @@ pipeline {
     }
 
     environment {
-        IMAGE_NAME  = 'anant2005ch/calculator'
-        IMAGE_TAG   = "${BUILD_NUMBER}"
+        IMAGE_NAME = 'anant2005ch/calculator'
+        IMAGE_TAG = "${BUILD_NUMBER}"
         AUTOHEAL_TEST = 'true'
     }
 
     stages {
 
+        /*
+         * ============================================================
+         * CHECKOUT
+         * ============================================================
+         */
         stage('Checkout') {
 
             agent any
@@ -105,7 +110,8 @@ pipeline {
 
                     /*
                      * Debug AutoHeal parameters.
-                     * This makes it easy to verify what Jenkins received.
+                     * Useful for verifying exactly what the retry
+                     * request passed into Jenkins.
                      */
                     if (params.AUTOHEAL_RETRY) {
 
@@ -115,6 +121,7 @@ pipeline {
                         echo "AUTOHEAL_CLEAN_WORKSPACE: ${params.AUTOHEAL_CLEAN_WORKSPACE}"
                         echo "AUTOHEAL_FRESH_CHECKOUT: ${params.AUTOHEAL_FRESH_CHECKOUT}"
                         echo "AUTOHEAL_CLEAN_DEPENDENCY_ENV: ${params.AUTOHEAL_CLEAN_DEPENDENCY_ENV}"
+                        echo "AUTOHEAL_INSTALL_FROM_LOCKFILE: ${params.AUTOHEAL_INSTALL_FROM_LOCKFILE}"
                         echo "AUTOHEAL_DOCKER_NO_CACHE: ${params.AUTOHEAL_DOCKER_NO_CACHE}"
                         echo "AUTOHEAL_CONNECTIVITY_CHECK: ${params.AUTOHEAL_CONNECTIVITY_CHECK}"
                         echo "AUTOHEAL_BACKOFF_SECONDS: ${params.AUTOHEAL_BACKOFF_SECONDS}"
@@ -122,12 +129,12 @@ pipeline {
                     }
 
                     /*
-                     * AutoHeal network recovery.
+                     * ------------------------------------------------
+                     * AutoHeal Network Recovery
+                     * ------------------------------------------------
                      *
-                     * IMPORTANT:
-                     * This stage is intentionally BEFORE checkout.
-                     * A real network failure can prevent Git checkout,
-                     * so recovery must happen before checkout starts.
+                     * Kept before checkout because a real network
+                     * failure can affect Git checkout itself.
                      */
                     if (
                         params.AUTOHEAL_RETRY &&
@@ -180,8 +187,8 @@ pipeline {
                                 echo "Connectivity check exit code: ${STATUS}"
 
                                 # Connectivity check is advisory.
-                                # The actual retry continues so Jenkins can
-                                # verify whether connectivity has recovered.
+                                # The retry itself determines whether
+                                # the pipeline has recovered.
                                 exit 0
                             '''
 
@@ -190,9 +197,9 @@ pipeline {
                     }
 
                     /*
-                     * AutoHeal workspace recovery.
-                     *
-                     * Only exists during an AutoHeal retry.
+                     * ------------------------------------------------
+                     * AutoHeal Workspace Recovery
+                     * ------------------------------------------------
                      */
                     if (
                         params.AUTOHEAL_RETRY &&
@@ -218,11 +225,9 @@ pipeline {
                     checkout scm
 
                     /*
-                     * Controlled workspace failure.
-                     *
-                     * IMPORTANT:
-                     * Do not change permissions or ownership.
-                     * This only generates a recognizable failure signature.
+                     * ------------------------------------------------
+                     * Controlled Workspace Failure
+                     * ------------------------------------------------
                      */
                     if (
                         !params.AUTOHEAL_RETRY &&
@@ -242,6 +247,12 @@ pipeline {
             }
         }
 
+
+        /*
+         * ============================================================
+         * TEST
+         * ============================================================
+         */
         stage('Test') {
 
             agent {
@@ -256,7 +267,9 @@ pipeline {
                 script {
 
                     /*
-                     * AutoHeal dependency recovery.
+                     * ------------------------------------------------
+                     * AutoHeal Dependency Recovery
+                     * ------------------------------------------------
                      */
                     if (
                         params.AUTOHEAL_RETRY &&
@@ -291,7 +304,9 @@ pipeline {
                     }
 
                     /*
-                     * Controlled dependency failure.
+                     * ------------------------------------------------
+                     * Controlled Dependency Failure
+                     * ------------------------------------------------
                      */
                     if (
                         !params.AUTOHEAL_RETRY &&
@@ -307,10 +322,12 @@ pipeline {
                     }
 
                     /*
-                     * Controlled network failure.
+                     * ------------------------------------------------
+                     * Controlled Network Failure
+                     * ------------------------------------------------
                      *
-                     * This is deliberately injected only into the
-                     * initial test build, never the AutoHeal retry.
+                     * Only the initial build gets the injected
+                     * failure. AutoHeal retry builds skip it.
                      */
                     if (
                         !params.AUTOHEAL_RETRY &&
@@ -354,6 +371,12 @@ pipeline {
             }
         }
 
+
+        /*
+         * ============================================================
+         * SONARQUBE
+         * ============================================================
+         */
         stage('SonarQube Analysis') {
 
             agent {
@@ -375,6 +398,12 @@ pipeline {
             }
         }
 
+
+        /*
+         * ============================================================
+         * DOCKER BUILD
+         * ============================================================
+         */
         stage('Docker Build') {
 
             agent {
@@ -393,7 +422,11 @@ pipeline {
                 script {
 
                     /*
-                     * Controlled Docker failure.
+                     * ------------------------------------------------
+                     * Controlled Docker Failure
+                     * ------------------------------------------------
+                     *
+                     * Initial build only.
                      */
                     if (
                         !params.AUTOHEAL_RETRY &&
@@ -409,25 +442,41 @@ pipeline {
                     }
 
                     /*
-                     * AutoHeal Docker recovery.
+                     * ------------------------------------------------
+                     * AutoHeal Docker Recovery
+                     * ------------------------------------------------
                      *
-                     * The actual recovery is the --no-cache build.
+                     * This is now a visible Jenkins stage.
                      */
-                    if (params.AUTOHEAL_DOCKER_NO_CACHE) {
+                    if (
+                        params.AUTOHEAL_RETRY &&
+                        (
+                            params.AUTOHEAL_ACTION == 'INVALIDATE_DOCKER_CACHE' ||
+                            params.AUTOHEAL_DOCKER_NO_CACHE
+                        )
+                    ) {
 
-                        echo 'AutoHeal: Docker no-cache recovery requested.'
-                        echo 'AutoHeal: invalidating Docker build cache.'
-                        echo 'AutoHeal: rebuilding image with --no-cache.'
+                        stage('AutoHeal - Docker Recovery') {
 
-                        sh """
-                            docker build \
-                                --no-cache \
-                                -t ${IMAGE_NAME}:${IMAGE_TAG} \
-                                .
-                        """
+                            echo 'AutoHeal: Docker recovery started.'
+                            echo 'AutoHeal: invalidating Docker build cache.'
+                            echo 'AutoHeal: rebuilding image with --no-cache.'
+
+                            sh """
+                                docker build \
+                                    --no-cache \
+                                    -t ${IMAGE_NAME}:${IMAGE_TAG} \
+                                    .
+                            """
+
+                            echo 'AutoHeal: Docker recovery completed.'
+                        }
 
                     } else {
 
+                        /*
+                         * Normal Docker build.
+                         */
                         docker_build(
                             image: IMAGE_NAME,
                             tag: IMAGE_TAG
@@ -437,6 +486,12 @@ pipeline {
             }
         }
 
+
+        /*
+         * ============================================================
+         * TRIVY
+         * ============================================================
+         */
         stage('Trivy Security Scan') {
 
             agent {
@@ -465,6 +520,12 @@ pipeline {
             }
         }
 
+
+        /*
+         * ============================================================
+         * DOCKER PUSH
+         * ============================================================
+         */
         stage('Docker Push') {
 
             agent {
@@ -483,7 +544,11 @@ pipeline {
                 script {
 
                     /*
-                     * Controlled registry failure.
+                     * ------------------------------------------------
+                     * Controlled Registry Failure
+                     * ------------------------------------------------
+                     *
+                     * Initial build only.
                      */
                     if (
                         !params.AUTOHEAL_RETRY &&
@@ -498,16 +563,59 @@ pipeline {
                         '''
                     }
 
-                    docker_push(
-                        image: IMAGE_NAME,
-                        tag: IMAGE_TAG,
-                        credentialsId: 'dockerhub'
-                    )
+                    /*
+                     * ------------------------------------------------
+                     * AutoHeal Registry Recovery
+                     * ------------------------------------------------
+                     *
+                     * This is now a visible Jenkins stage.
+                     *
+                     * docker_push() is reused so your existing
+                     * Docker Hub credential configuration remains
+                     * unchanged.
+                     */
+                    if (
+                        params.AUTOHEAL_RETRY &&
+                        params.AUTOHEAL_ACTION == 'RETRY_REGISTRY'
+                    ) {
+
+                        stage('AutoHeal - Registry Recovery') {
+
+                            echo 'AutoHeal: registry recovery started.'
+                            echo 'AutoHeal: re-authenticating with Docker Hub.'
+                            echo 'AutoHeal: retrying image push.'
+
+                            docker_push(
+                                image: IMAGE_NAME,
+                                tag: IMAGE_TAG,
+                                credentialsId: 'dockerhub'
+                            )
+
+                            echo 'AutoHeal: registry recovery completed.'
+                        }
+
+                    } else {
+
+                        /*
+                         * Normal Docker push.
+                         */
+                        docker_push(
+                            image: IMAGE_NAME,
+                            tag: IMAGE_TAG,
+                            credentialsId: 'dockerhub'
+                        )
+                    }
                 }
             }
         }
     }
 
+
+    /*
+     * ================================================================
+     * POST
+     * ================================================================
+     */
     post {
 
         failure {
@@ -517,7 +625,8 @@ pipeline {
                 script {
 
                     /*
-                     * NEVER recursively notify AutoHeal for a retry build.
+                     * NEVER recursively notify AutoHeal for a
+                     * retry build.
                      */
                     if (params.AUTOHEAL_RETRY) {
 
@@ -530,7 +639,7 @@ pipeline {
                             script: '''
                                 set +e
 
-                                # Prevent stale responses from previous webhook calls.
+                                # Remove any stale response first.
                                 rm -f /tmp/autoheal-response.json
 
                                 HTTP_CODE=$(curl \
