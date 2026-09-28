@@ -70,13 +70,29 @@ pipeline {
             defaultValue: '0',
             description: 'Backoff before retry in seconds.'
         )
+
+        // Temporary test selector.
+        // Keep NONE for normal builds.
+        choice(
+            name: 'AUTOHEAL_TEST_FAILURE',
+            choices: [
+                'NONE',
+                'FLAKY_TEST',
+                'WORKSPACE_FAILURE',
+                'DEPENDENCY_FAILURE',
+                'NETWORK_FAILURE',
+                'DOCKER_FAILURE',
+                'REGISTRY_FAILURE'
+            ],
+            description: 'Temporary AutoHeal end-to-end test selector. Leave NONE for normal builds.'
+        )
     }
 
     environment {
+
         IMAGE_NAME = 'anant2005ch/calculator'
         IMAGE_TAG  = "${BUILD_NUMBER}"
 
-        // Used by the intentional AutoHeal test in test_calculator.py
         AUTOHEAL_TEST = 'true'
     }
 
@@ -96,7 +112,7 @@ pipeline {
 
                     // ==================================================
                     // AUTOHEAL WORKSPACE RECOVERY
-                    // Only created during an AutoHeal retry
+                    // Created only during an AutoHeal retry.
                     // ==================================================
 
                     if (
@@ -125,6 +141,24 @@ pipeline {
 
                     checkout scm
 
+                    // ==================================================
+                    // TEST: WORKSPACE FAILURE
+                    // Non-destructive failure injection.
+                    // ==================================================
+
+                    if (
+                        !params.AUTOHEAL_RETRY &&
+                        params.AUTOHEAL_TEST_FAILURE == 'WORKSPACE_FAILURE'
+                    ) {
+
+                        echo 'AutoHeal test: injecting workspace failure...'
+
+                        sh '''
+                            echo "ERROR: unable to create file in workspace"
+                            exit 1
+                        '''
+                    }
+
                     echo 'Checkout completed.'
                 }
             }
@@ -147,115 +181,175 @@ pipeline {
 
                 script {
 
-                    // ==================================================
-                    // AUTOHEAL DEPENDENCY RECOVERY
-                    // Only created during an AutoHeal retry
-                    // ==================================================
+                    try {
 
-                    if (
-                        params.AUTOHEAL_RETRY &&
-                        (
-                            params.AUTOHEAL_ACTION == 'CLEAN_DEPENDENCY_ENV' ||
-                            params.AUTOHEAL_CLEAN_DEPENDENCY_ENV
-                        )
-                    ) {
+                        // ==============================================
+                        // AUTOHEAL DEPENDENCY RECOVERY
+                        // ==============================================
 
-                        stage('AutoHeal - Dependency Recovery') {
+                        if (
+                            params.AUTOHEAL_RETRY &&
+                            (
+                                params.AUTOHEAL_ACTION == 'CLEAN_DEPENDENCY_ENV' ||
+                                params.AUTOHEAL_CLEAN_DEPENDENCY_ENV
+                            )
+                        ) {
 
-                            echo 'AutoHeal: preparing clean dependency environment...'
+                            stage('AutoHeal - Dependency Recovery') {
 
-                            sh '''
-                                set -eux
+                                echo 'AutoHeal: preparing clean dependency environment...'
 
-                                rm -rf .venv
+                                sh '''
+                                    set -eux
 
-                                python -m venv .venv
+                                    rm -rf .venv
 
-                                . .venv/bin/activate
+                                    python -m venv .venv
 
-                                python -m pip install --upgrade pip
+                                    . .venv/bin/activate
 
-                                if [ -f requirements.txt ]; then
-                                    pip install -r requirements.txt
-                                fi
-                            '''
+                                    python -m pip install --upgrade pip
 
-                            echo 'AutoHeal: dependency recovery preparation completed.'
+                                    if [ -f requirements.txt ]; then
+                                        pip install -r requirements.txt
+                                    fi
+                                '''
+
+                                echo 'AutoHeal: dependency recovery preparation completed.'
+                            }
                         }
-                    }
 
-                    // ==================================================
-                    // AUTOHEAL NETWORK RECOVERY
-                    // Only created during an AutoHeal retry
-                    // ==================================================
+                        // ==============================================
+                        // AUTOHEAL NETWORK RECOVERY
+                        // ==============================================
 
-                    if (
-                        params.AUTOHEAL_RETRY &&
-                        (
-                            params.AUTOHEAL_ACTION == 'CONNECTIVITY_CHECK_BACKOFF' ||
-                            params.AUTOHEAL_CONNECTIVITY_CHECK
-                        )
-                    ) {
+                        if (
+                            params.AUTOHEAL_RETRY &&
+                            (
+                                params.AUTOHEAL_ACTION == 'CONNECTIVITY_CHECK_BACKOFF' ||
+                                params.AUTOHEAL_CONNECTIVITY_CHECK
+                            )
+                        ) {
 
-                        stage('AutoHeal - Network Recovery') {
+                            stage('AutoHeal - Network Recovery') {
 
-                            int backoff = 0
+                                int backoff = 0
 
-                            try {
-                                backoff = params.AUTOHEAL_BACKOFF_SECONDS.toInteger()
-                            } catch (Exception ignored) {
-                                backoff = 0
+                                try {
+                                    backoff = params.AUTOHEAL_BACKOFF_SECONDS.toInteger()
+                                } catch (Exception ignored) {
+                                    backoff = 0
+                                }
+
+                                if (backoff > 0) {
+
+                                    echo "AutoHeal: waiting ${backoff} seconds before retry..."
+
+                                    sleep(
+                                        time: backoff,
+                                        unit: 'SECONDS'
+                                    )
+                                }
+
+                                echo 'AutoHeal: checking network connectivity...'
+
+                                sh '''
+                                    set +e
+
+                                    echo "Checking DNS..."
+                                    getent hosts github.com || true
+
+                                    echo "Checking HTTPS connectivity..."
+
+                                    curl \
+                                        --silent \
+                                        --show-error \
+                                        --max-time 10 \
+                                        https://github.com \
+                                        -o /dev/null
+
+                                    STATUS=$?
+
+                                    echo "Connectivity check exit code: ${STATUS}"
+
+                                    exit 0
+                                '''
                             }
+                        }
 
-                            if (backoff > 0) {
+                        // ==============================================
+                        // TEST: DEPENDENCY FAILURE
+                        // ==============================================
 
-                                echo "AutoHeal: waiting ${backoff} seconds before retry..."
+                        if (
+                            !params.AUTOHEAL_RETRY &&
+                            params.AUTOHEAL_TEST_FAILURE == 'DEPENDENCY_FAILURE'
+                        ) {
 
-                                sleep(
-                                    time: backoff,
-                                    unit: 'SECONDS'
-                                )
-                            }
-
-                            echo 'AutoHeal: checking network connectivity...'
+                            echo 'AutoHeal test: injecting dependency failure...'
 
                             sh '''
-                                set +e
+                                echo "ERROR: No matching distribution found for AUTOHEAL_DEPENDENCY_FAILURE"
+                                exit 1
+                            '''
+                        }
 
-                                echo "Checking DNS..."
-                                getent hosts github.com || true
+                        // ==============================================
+                        // TEST: NETWORK FAILURE
+                        // ==============================================
 
-                                echo "Checking HTTPS connectivity..."
+                        if (
+                            !params.AUTOHEAL_RETRY &&
+                            params.AUTOHEAL_TEST_FAILURE == 'NETWORK_FAILURE'
+                        ) {
 
+                            echo 'AutoHeal test: injecting network failure...'
+
+                            sh '''
                                 curl \
                                     --silent \
                                     --show-error \
-                                    --max-time 10 \
-                                    https://github.com \
-                                    -o /dev/null
-
-                                STATUS=$?
-
-                                echo "Connectivity check exit code: ${STATUS}"
-
-                                exit 0
+                                    --fail \
+                                    --max-time 2 \
+                                    http://127.0.0.1:9
                             '''
                         }
+
+                        // ==============================================
+                        // EXISTING PYTHON TEST
+                        // ==============================================
+
+                        echo 'Running Python tests...'
+
+                        python_test(
+                            requirements: 'requirements.txt',
+                            testCommand: 'pytest',
+                            junitReport: 'report.xml',
+                            coverage: true,
+                            coverageFile: 'coverage.xml'
+                        )
+
+                    } finally {
+
+                        // ==================================================
+                        // IMPORTANT:
+                        // Docker test container runs as root.
+                        // Restore workspace ownership to the Jenkins user
+                        // before the container exits.
+                        //
+                        // We discover the correct UID/GID from the workspace
+                        // itself, so there is no hardcoded Jenkins UID.
+                        // ==================================================
+
+                        sh '''
+                            OWNER="$(stat -c '%u:%g' . 2>/dev/null || true)"
+
+                            if [ -n "$OWNER" ]; then
+                                echo "Restoring workspace ownership to $OWNER"
+                                chown -R "$OWNER" . 2>/dev/null || true
+                            fi
+                        '''
                     }
-
-                    // ==================================================
-                    // EXISTING TEST EXECUTION
-                    // ==================================================
-
-                    echo 'Running Python tests...'
-
-                    python_test(
-                        requirements: 'requirements.txt',
-                        testCommand: 'pytest',
-                        junitReport: 'report.xml',
-                        coverage: true,
-                        coverageFile: 'coverage.xml'
-                    )
                 }
             }
 
@@ -299,6 +393,21 @@ pipeline {
                     )
                 }
             }
+
+            post {
+
+                always {
+
+                    // Sonar may create .scannerwork as root.
+                    sh '''
+                        OWNER="$(stat -c '%u:%g' . 2>/dev/null || true)"
+
+                        if [ -n "$OWNER" ]; then
+                            chown -R "$OWNER" . 2>/dev/null || true
+                        fi
+                    '''
+                }
+            }
         }
 
         // ============================================================
@@ -310,6 +419,7 @@ pipeline {
             agent {
                 docker {
                     image 'docker:28-cli'
+
                     args '''
                         -u root:root
                         -v /var/run/docker.sock:/var/run/docker.sock
@@ -320,6 +430,23 @@ pipeline {
             steps {
 
                 script {
+
+                    // ==============================================
+                    // TEST: DOCKER FAILURE
+                    // ==============================================
+
+                    if (
+                        !params.AUTOHEAL_RETRY &&
+                        params.AUTOHEAL_TEST_FAILURE == 'DOCKER_FAILURE'
+                    ) {
+
+                        echo 'AutoHeal test: injecting Docker failure...'
+
+                        sh '''
+                            echo "ERROR: failed to build AUTOHEAL_DOCKER_FAILURE"
+                            exit 1
+                        '''
+                    }
 
                     if (params.AUTOHEAL_DOCKER_NO_CACHE) {
 
@@ -352,10 +479,11 @@ pipeline {
             agent {
                 docker {
                     image 'aquasec/trivy:latest'
+
                     args '''
-                    --entrypoint=''
-                    -u root:root
-                    -v /var/run/docker.sock:/var/run/docker.sock
+                        --entrypoint=''
+                        -u root:root
+                        -v /var/run/docker.sock:/var/run/docker.sock
                     '''
                 }
             }
@@ -383,6 +511,7 @@ pipeline {
             agent {
                 docker {
                     image 'docker:28-cli'
+
                     args '''
                         -u root:root
                         -v /var/run/docker.sock:/var/run/docker.sock
@@ -393,6 +522,23 @@ pipeline {
             steps {
 
                 script {
+
+                    // ==============================================
+                    // TEST: REGISTRY FAILURE
+                    // ==============================================
+
+                    if (
+                        !params.AUTOHEAL_RETRY &&
+                        params.AUTOHEAL_TEST_FAILURE == 'REGISTRY_FAILURE'
+                    ) {
+
+                        echo 'AutoHeal test: injecting registry failure...'
+
+                        sh '''
+                            echo "ERROR: unauthorized: registry access denied"
+                            exit 1
+                        '''
+                    }
 
                     docker_push(
                         image: IMAGE_NAME,
@@ -416,49 +562,79 @@ pipeline {
 
                 script {
 
-                    sh(
-                        script: '''
-                            set +e
+                    // ==================================================
+                    // VERY IMPORTANT
+                    //
+                    // A recovery build is already owned by the original
+                    // AutoHeal incident. Do NOT send its failure back
+                    // into AutoHeal again.
+                    //
+                    // This prevents:
+                    //
+                    // retry -> webhook -> retry -> webhook -> ...
+                    // ==================================================
 
-                            HTTP_CODE=$(curl \
-                                --silent \
-                                --show-error \
-                                --output /tmp/autoheal-response.json \
-                                --write-out "%{http_code}" \
-                                --max-time 15 \
-                                -X POST \
-                                http://127.0.0.1:8000/webhook/jenkins \
-                                -H "Content-Type: application/json" \
-                                -H "X-AutoHeal-Secret: change-me" \
-                                --data-raw "{
-                                    \\"job_name\\": \\"${JOB_NAME}\\",
-                                    \\"build_number\\": ${BUILD_NUMBER},
-                                    \\"build_url\\": \\"${BUILD_URL}\\",
-                                    \\"status\\": \\"FAILURE\\"
-                                }"
-                            )
+                    if (params.AUTOHEAL_RETRY) {
 
-                            echo "AutoHeal HTTP status: ${HTTP_CODE}"
+                        echo 'AutoHeal retry build failed.'
+                        echo 'Skipping recursive AutoHeal webhook.'
+                        echo 'Original AutoHeal incident will record the failed retry.'
 
-                            if [ -f /tmp/autoheal-response.json ]; then
-                                echo "AutoHeal response:"
-                                cat /tmp/autoheal-response.json
-                            fi
+                    } else {
 
-                            if [ "${HTTP_CODE}" = "000" ]; then
-                                echo "WARNING: AutoHeal webhook could not be reached."
+                        sh(
+                            script: '''
+                                set +e
 
-                            elif [ "${HTTP_CODE}" != "200" ]; then
-                                echo "WARNING: AutoHeal returned HTTP ${HTTP_CODE}"
+                                rm -f /tmp/autoheal-response.json
 
-                            else
-                                echo "AutoHeal successfully received the failure."
-                            fi
+                                HTTP_CODE=$(curl \
+                                    --silent \
+                                    --show-error \
+                                    --output /tmp/autoheal-response.json \
+                                    --write-out "%{http_code}" \
+                                    --max-time 10 \
+                                    -X POST \
+                                    http://127.0.0.1:8000/webhook/jenkins \
+                                    -H "Content-Type: application/json" \
+                                    -H "X-AutoHeal-Secret: change-me" \
+                                    --data-raw "{
+                                        \\"job_name\\": \\"${JOB_NAME}\\",
+                                        \\"build_number\\": ${BUILD_NUMBER},
+                                        \\"build_url\\": \\"${BUILD_URL}\\",
+                                        \\"status\\": \\"FAILURE\\"
+                                    }"
+                                )
 
-                            exit 0
-                        ''',
-                        label: 'Notify AutoHeal'
-                    )
+                                echo "AutoHeal HTTP status: ${HTTP_CODE}"
+
+                                if [ -f /tmp/autoheal-response.json ]; then
+                                    echo "AutoHeal response:"
+                                    cat /tmp/autoheal-response.json
+                                    echo
+                                fi
+
+                                case "${HTTP_CODE}" in
+
+                                    200|202)
+                                        echo "AutoHeal accepted the failure."
+                                        ;;
+
+                                    000)
+                                        echo "WARNING: AutoHeal webhook could not be reached."
+                                        ;;
+
+                                    *)
+                                        echo "WARNING: AutoHeal returned HTTP ${HTTP_CODE}"
+                                        ;;
+
+                                esac
+
+                                exit 0
+                            ''',
+                            label: 'Notify AutoHeal'
+                        )
+                    }
                 }
             }
         }
