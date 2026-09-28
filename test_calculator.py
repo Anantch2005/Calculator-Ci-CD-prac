@@ -57,15 +57,14 @@ def test_autoheal_flaky():
     """
     Controlled failure used to test AutoHeal.
 
-    Normal build:
-        AUTOHEAL_RETRY=false
-        -> intentionally fails
-
-    AutoHeal retry:
-        AUTOHEAL_RETRY=true
-        -> passes
+    Only fails when the FLAKY_TEST failure mode is explicitly selected.
     """
 
-    if os.getenv("AUTOHEAL_TEST") == "true":
-        if os.getenv("AUTOHEAL_RETRY") != "true":
-            assert False, "AUTOHEAL_FLAKY_TEST"
+    test_mode = os.getenv("AUTOHEAL_TEST_FAILURE", "NONE")
+
+    if (
+        os.getenv("AUTOHEAL_TEST") == "true"
+        and test_mode == "FLAKY_TEST"
+        and os.getenv("AUTOHEAL_RETRY") != "true"
+    ):
+        assert False, "AUTOHEAL_FLAKY_TEST"
