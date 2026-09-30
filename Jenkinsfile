@@ -110,8 +110,6 @@ pipeline {
 
                     /*
                      * Debug AutoHeal parameters.
-                     * Useful for verifying exactly what the retry
-                     * request passed into Jenkins.
                      */
                     if (params.AUTOHEAL_RETRY) {
 
@@ -132,9 +130,6 @@ pipeline {
                      * ------------------------------------------------
                      * AutoHeal Network Recovery
                      * ------------------------------------------------
-                     *
-                     * Kept before checkout because a real network
-                     * failure can affect Git checkout itself.
                      */
                     if (
                         params.AUTOHEAL_RETRY &&
@@ -267,6 +262,25 @@ pipeline {
                 script {
 
                     /*
+                     * =================================================
+                     * IMPORTANT:
+                     * Capture the Jenkins workspace owner BEFORE
+                     * running commands as root.
+                     *
+                     * Jenkins normally owns the workspace with its
+                     * own UID:GID. The Docker test container runs as
+                     * root, so pytest/venv/cache files can otherwise
+                     * become root-owned.
+                     * =================================================
+                     */
+                    env.AUTOHEAL_WORKSPACE_OWNER = sh(
+                        script: "stat -c '%u:%g' \"${WORKSPACE}\"",
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Jenkins workspace owner: ${env.AUTOHEAL_WORKSPACE_OWNER}"
+
+                    /*
                      * ------------------------------------------------
                      * AutoHeal Dependency Recovery
                      * ------------------------------------------------
@@ -325,9 +339,6 @@ pipeline {
                      * ------------------------------------------------
                      * Controlled Network Failure
                      * ------------------------------------------------
-                     *
-                     * Only the initial build gets the injected
-                     * failure. AutoHeal retry builds skip it.
                      */
                     if (
                         !params.AUTOHEAL_RETRY &&
@@ -357,6 +368,39 @@ pipeline {
             post {
 
                 always {
+
+                    /*
+                     * =================================================
+                     * IMPORTANT WORKSPACE OWNERSHIP FIX
+                     *
+                     * Test container runs as root.
+                     * Restore ownership back to the original Jenkins
+                     * user before the stage finishes.
+                     *
+                     * This prevents the next build's checkout from
+                     * failing with:
+                     * "Operation not permitted"
+                     * =================================================
+                     */
+                    script {
+
+                        if (
+                            env.AUTOHEAL_WORKSPACE_OWNER?.trim()
+                        ) {
+
+                            echo "Restoring workspace ownership to ${env.AUTOHEAL_WORKSPACE_OWNER}..."
+
+                            sh """
+                                set -eux
+
+                                if [ -d "\${WORKSPACE}" ]; then
+                                    chown -R ${env.AUTOHEAL_WORKSPACE_OWNER} "\${WORKSPACE}"
+                                fi
+                            """
+
+                            echo 'Workspace ownership restored.'
+                        }
+                    }
 
                     junit(
                         testResults: 'report.xml',
@@ -390,10 +434,54 @@ pipeline {
 
                 script {
 
+                    /*
+                     * SonarScanner can create .scannerwork and other
+                     * files inside the Jenkins workspace.
+                     *
+                     * Capture the original Jenkins ownership before
+                     * running the scanner as root.
+                     */
+                    env.AUTOHEAL_SONAR_WORKSPACE_OWNER = sh(
+                        script: "stat -c '%u:%g' \"${WORKSPACE}\"",
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Jenkins workspace owner before SonarQube: ${env.AUTOHEAL_SONAR_WORKSPACE_OWNER}"
+
                     sonarqube_analysis(
                         server: 'SonarQube',
                         scanner: 'sonar-scanner'
                     )
+                }
+            }
+
+            post {
+
+                always {
+
+                    /*
+                     * Restore Jenkins workspace ownership after
+                     * SonarScanner runs as root.
+                     */
+                    script {
+
+                        if (
+                            env.AUTOHEAL_SONAR_WORKSPACE_OWNER?.trim()
+                        ) {
+
+                            echo "Restoring workspace ownership after SonarQube to ${env.AUTOHEAL_SONAR_WORKSPACE_OWNER}..."
+
+                            sh """
+                                set -eux
+
+                                if [ -d "\${WORKSPACE}" ]; then
+                                    chown -R ${env.AUTOHEAL_SONAR_WORKSPACE_OWNER} "\${WORKSPACE}"
+                                fi
+                            """
+
+                            echo 'SonarQube workspace ownership restored.'
+                        }
+                    }
                 }
             }
         }
@@ -425,8 +513,6 @@ pipeline {
                      * ------------------------------------------------
                      * Controlled Docker Failure
                      * ------------------------------------------------
-                     *
-                     * Initial build only.
                      */
                     if (
                         !params.AUTOHEAL_RETRY &&
@@ -445,8 +531,6 @@ pipeline {
                      * ------------------------------------------------
                      * AutoHeal Docker Recovery
                      * ------------------------------------------------
-                     *
-                     * This is now a visible Jenkins stage.
                      */
                     if (
                         params.AUTOHEAL_RETRY &&
@@ -547,8 +631,6 @@ pipeline {
                      * ------------------------------------------------
                      * Controlled Registry Failure
                      * ------------------------------------------------
-                     *
-                     * Initial build only.
                      */
                     if (
                         !params.AUTOHEAL_RETRY &&
@@ -567,12 +649,6 @@ pipeline {
                      * ------------------------------------------------
                      * AutoHeal Registry Recovery
                      * ------------------------------------------------
-                     *
-                     * This is now a visible Jenkins stage.
-                     *
-                     * docker_push() is reused so your existing
-                     * Docker Hub credential configuration remains
-                     * unchanged.
                      */
                     if (
                         params.AUTOHEAL_RETRY &&
