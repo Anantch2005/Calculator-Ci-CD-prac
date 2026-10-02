@@ -1,6 +1,4 @@
-@Library('Shared') _
-@Library('AutoHeal') _
-
+@Library(['Shared', 'AutoHeal']) _
 
 pipeline {
 
