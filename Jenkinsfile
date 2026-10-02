@@ -1,569 +1,672 @@
 @Library('Shared') _
+@Library('AutoHeal') _
+
 
 pipeline {
+
     agent none
 
+
     options {
-        skipDefaultCheckout(true)
+
+        skipDefaultCheckout(
+            true
+        )
+
+        timestamps()
     }
+
 
     parameters {
 
-        booleanParam(
-            name: 'AUTOHEAL_RETRY',
-            defaultValue: false,
-            description: 'Set by AutoHeal when a recovery retry is requested.'
-        )
-
-        choice(
-            name: 'AUTOHEAL_ACTION',
-            choices: [
-                'NONE',
-                'RETRY_FLAKY_TEST',
-                'CLEAN_WORKSPACE',
-                'CLEAN_DEPENDENCY_ENV',
-                'INVALIDATE_DOCKER_CACHE',
-                'CONNECTIVITY_CHECK_BACKOFF',
-                'CONNECTIVITY_CHECK_BACKOFF_AND_RETRY',
-                'RETRY_REGISTRY'
-            ],
-            description: 'Internal AutoHeal remediation action.'
-        )
-
-        booleanParam(
-            name: 'AUTOHEAL_CLEAN_WORKSPACE',
-            defaultValue: false,
-            description: 'Clean Jenkins workspace before retry.'
-        )
-
-        booleanParam(
-            name: 'AUTOHEAL_FRESH_CHECKOUT',
-            defaultValue: false,
-            description: 'Perform a fresh repository checkout.'
-        )
-
-        booleanParam(
-            name: 'AUTOHEAL_CLEAN_DEPENDENCY_ENV',
-            defaultValue: false,
-            description: 'Force a clean dependency environment.'
-        )
-
-        booleanParam(
-            name: 'AUTOHEAL_INSTALL_FROM_LOCKFILE',
-            defaultValue: false,
-            description: 'Install dependencies from the lockfile.'
-        )
-
-        booleanParam(
-            name: 'AUTOHEAL_DOCKER_NO_CACHE',
-            defaultValue: false,
-            description: 'Build Docker image without cache.'
-        )
-
-        booleanParam(
-            name: 'AUTOHEAL_CONNECTIVITY_CHECK',
-            defaultValue: false,
-            description: 'Run connectivity checks before retry.'
-        )
+        /*
+         * =====================================================
+         * INTERNAL AUTOHEAL ACTION
+         * =====================================================
+         *
+         * Normal build:
+         *
+         *     ""
+         *
+         * AutoHeal retry:
+         *
+         *     CLEAN_WORKSPACE
+         *     CLEAN_DEPENDENCY_ENV
+         *     INVALIDATE_DOCKER_CACHE
+         *     CONNECTIVITY_CHECK_BACKOFF
+         *     RETRY_REGISTRY
+         *     RETRY
+         *
+         * This is the only AutoHeal parameter.
+         */
 
         string(
-            name: 'AUTOHEAL_BACKOFF_SECONDS',
-            defaultValue: '0',
-            description: 'Backoff before retry in seconds.'
+
+            name:
+                'AUTOHEAL_ACTION',
+
+            defaultValue:
+                '',
+
+            description:
+                'Internal AutoHeal routing value. Leave empty for normal builds.'
         )
+
+
+        /*
+         * =====================================================
+         * DEMO FAILURE SELECTOR
+         * =====================================================
+         *
+         * This is ONLY for your Calculator E2E demonstration.
+         */
 
         choice(
-            name: 'AUTOHEAL_TEST_FAILURE',
+
+            name:
+                'AUTOHEAL_TEST_FAILURE',
+
             choices: [
+
                 'NONE',
+
                 'FLAKY_TEST',
+
                 'WORKSPACE_FAILURE',
+
                 'DEPENDENCY_FAILURE',
+
                 'NETWORK_FAILURE',
+
                 'DOCKER_FAILURE',
-                'REGISTRY_FAILURE'
+
+                'REGISTRY_FAILURE',
+
+                'UNKNOWN_FAILURE'
             ],
-            description: 'Temporary AutoHeal end-to-end test selector. Leave NONE for normal builds.'
+
+            description:
+                'Demo only: intentionally trigger an AutoHeal failure.'
         )
     }
 
+
     environment {
-        IMAGE_NAME = 'anant2005ch/calculator'
-        IMAGE_TAG = "${BUILD_NUMBER}"
-        AUTOHEAL_TEST = 'true'
+
+        IMAGE_NAME =
+            'anant2005ch/calculator'
+
+        IMAGE_TAG =
+            "${BUILD_NUMBER}"
+
+        AUTOHEAL_TEST =
+            'true'
     }
+
 
     stages {
 
-        /*
-         * ============================================================
-         * CHECKOUT
-         * ============================================================
-         */
+
+        // =====================================================
+        // CHECKOUT
+        // =====================================================
+
         stage('Checkout') {
 
             agent any
 
+
             steps {
 
                 script {
 
                     /*
-                     * Debug AutoHeal parameters.
+                     * On normal build:
+                     *
+                     *     no-op
+                     *
+                     * On AutoHeal retry:
+                     *
+                     *     sets AUTOHEAL_RETRY=true
+                     *     performs workspace/network recovery
                      */
-                    if (params.AUTOHEAL_RETRY) {
 
-                        echo '========== AutoHeal Retry Parameters =========='
-                        echo "AUTOHEAL_RETRY: ${params.AUTOHEAL_RETRY}"
-                        echo "AUTOHEAL_ACTION: ${params.AUTOHEAL_ACTION}"
-                        echo "AUTOHEAL_CLEAN_WORKSPACE: ${params.AUTOHEAL_CLEAN_WORKSPACE}"
-                        echo "AUTOHEAL_FRESH_CHECKOUT: ${params.AUTOHEAL_FRESH_CHECKOUT}"
-                        echo "AUTOHEAL_CLEAN_DEPENDENCY_ENV: ${params.AUTOHEAL_CLEAN_DEPENDENCY_ENV}"
-                        echo "AUTOHEAL_INSTALL_FROM_LOCKFILE: ${params.AUTOHEAL_INSTALL_FROM_LOCKFILE}"
-                        echo "AUTOHEAL_DOCKER_NO_CACHE: ${params.AUTOHEAL_DOCKER_NO_CACHE}"
-                        echo "AUTOHEAL_CONNECTIVITY_CHECK: ${params.AUTOHEAL_CONNECTIVITY_CHECK}"
-                        echo "AUTOHEAL_BACKOFF_SECONDS: ${params.AUTOHEAL_BACKOFF_SECONDS}"
-                        echo '==============================================='
-                    }
+                    autoheal()
 
-                    /*
-                     * ------------------------------------------------
-                     * AutoHeal Network Recovery
-                     * ------------------------------------------------
-                     */
+
+                    // -------------------------------------------------
+                    // DEMO WORKSPACE FAILURE
+                    // -------------------------------------------------
+
                     if (
-                        params.AUTOHEAL_RETRY &&
-                        (
-                            params.AUTOHEAL_ACTION == 'CONNECTIVITY_CHECK_BACKOFF' ||
-                            params.AUTOHEAL_ACTION == 'CONNECTIVITY_CHECK_BACKOFF_AND_RETRY' ||
-                            params.AUTOHEAL_CONNECTIVITY_CHECK
-                        )
+
+                        !env.AUTOHEAL_RETRY
+
+                        &&
+
+                        params.AUTOHEAL_TEST_FAILURE
+                            == 'WORKSPACE_FAILURE'
                     ) {
 
-                        stage('AutoHeal - Network Recovery') {
+                        echo(
+                            'AutoHeal demo: '
+                            + 'injecting workspace failure.'
+                        )
 
-                            int backoff = 0
 
-                            try {
-                                backoff = params.AUTOHEAL_BACKOFF_SECONDS.toInteger()
-                            } catch (Exception ignored) {
-                                backoff = 0
-                            }
+                        sh '''
+                            echo \
+                                "AUTOHEAL_WORKSPACE_FAILURE: unable to prepare workspace" \
+                                >&2
 
-                            if (backoff > 0) {
-
-                                echo "AutoHeal: waiting ${backoff} seconds before retry..."
-
-                                sleep(
-                                    time: backoff,
-                                    unit: 'SECONDS'
-                                )
-                            }
-
-                            echo 'AutoHeal: checking network connectivity...'
-
-                            sh '''
-                                set +e
-
-                                echo "Checking DNS..."
-                                getent hosts github.com || true
-
-                                echo "Checking HTTPS connectivity..."
-
-                                curl \
-                                    --silent \
-                                    --show-error \
-                                    --max-time 10 \
-                                    https://github.com \
-                                    -o /dev/null
-
-                                STATUS=$?
-
-                                echo "Connectivity check exit code: ${STATUS}"
-
-                                # Connectivity check is advisory.
-                                # The retry itself determines whether
-                                # the pipeline has recovered.
-                                exit 0
-                            '''
-
-                            echo 'AutoHeal: network recovery preparation completed.'
-                        }
+                            exit 1
+                        '''
                     }
 
-                    /*
-                     * ------------------------------------------------
-                     * AutoHeal Workspace Recovery
-                     * ------------------------------------------------
-                     */
+
+                    // -------------------------------------------------
+                    // DEMO NETWORK FAILURE
+                    // -------------------------------------------------
+
                     if (
-                        params.AUTOHEAL_RETRY &&
-                        (
-                            params.AUTOHEAL_ACTION == 'CLEAN_WORKSPACE' ||
-                            params.AUTOHEAL_CLEAN_WORKSPACE ||
-                            params.AUTOHEAL_FRESH_CHECKOUT
-                        )
+
+                        !env.AUTOHEAL_RETRY
+
+                        &&
+
+                        params.AUTOHEAL_TEST_FAILURE
+                            == 'NETWORK_FAILURE'
                     ) {
 
-                        stage('AutoHeal - Workspace Recovery') {
+                        echo(
+                            'AutoHeal demo: '
+                            + 'injecting network failure.'
+                        )
 
-                            echo 'AutoHeal: preparing clean workspace...'
 
-                            deleteDir()
+                        sh '''
+                            echo \
+                                "AUTOHEAL_NETWORK_FAILURE: failed to connect to remote service" \
+                                >&2
 
-                            echo 'AutoHeal: workspace cleanup completed.'
-                        }
+                            exit 1
+                        '''
                     }
 
-                    echo 'Checking out source code...'
+
+                    // -------------------------------------------------
+                    // DEMO UNKNOWN FAILURE
+                    // -------------------------------------------------
+
+                    if (
+
+                        !env.AUTOHEAL_RETRY
+
+                        &&
+
+                        params.AUTOHEAL_TEST_FAILURE
+                            == 'UNKNOWN_FAILURE'
+                    ) {
+
+                        echo(
+                            'AutoHeal demo: '
+                            + 'injecting unknown failure.'
+                        )
+
+
+                        sh '''
+                            echo \
+                                "AUTOHEAL_DEMO_UNKNOWN: unexpected controller condition 7312" \
+                                >&2
+
+                            exit 1
+                        '''
+                    }
+
+
+                    echo(
+                        'Checking out source code...'
+                    )
+
 
                     checkout scm
 
-                    /*
-                     * ------------------------------------------------
-                     * Controlled Workspace Failure
-                     * ------------------------------------------------
-                     */
-                    if (
-                        !params.AUTOHEAL_RETRY &&
-                        params.AUTOHEAL_TEST_FAILURE == 'WORKSPACE_FAILURE'
-                    ) {
 
-                        echo 'AutoHeal test: injecting workspace failure...'
-
-                        sh '''
-                            echo "ERROR: unable to create file in workspace"
-                            exit 1
-                        '''
-                    }
-
-                    echo 'Checkout completed.'
+                    echo(
+                        'Checkout completed.'
+                    )
                 }
             }
         }
 
 
-        /*
-         * ============================================================
-         * TEST
-         * ============================================================
-         */
+        // =====================================================
+        // TEST
+        // =====================================================
+
         stage('Test') {
 
             agent {
+
                 docker {
-                    image 'python:3.12'
-                    args '-u root:root'
+
+                    image:
+                        'python:3.12'
+
+                    args:
+                        '-u root:root'
+
+                    reuseNode:
+                        true
                 }
             }
+
 
             steps {
 
                 script {
 
                     /*
-                     * =================================================
-                     * IMPORTANT:
-                     * Capture the Jenkins workspace owner BEFORE
-                     * running commands as root.
-                     *
-                     * Jenkins normally owns the workspace with its
-                     * own UID:GID. The Docker test container runs as
-                     * root, so pytest/venv/cache files can otherwise
-                     * become root-owned.
-                     * =================================================
+                     * Capture workspace ownership before
+                     * running the Docker test container as root.
                      */
-                    env.AUTOHEAL_WORKSPACE_OWNER = sh(
-                        script: "stat -c '%u:%g' \"${WORKSPACE}\"",
-                        returnStdout: true
-                    ).trim()
 
-                    echo "Jenkins workspace owner: ${env.AUTOHEAL_WORKSPACE_OWNER}"
+                    env.AUTOHEAL_WORKSPACE_OWNER =
+                        sh(
 
-                    /*
-                     * ------------------------------------------------
-                     * AutoHeal Dependency Recovery
-                     * ------------------------------------------------
-                     */
+                            script:
+                                "stat -c '%u:%g' \"${WORKSPACE}\"",
+
+                            returnStdout:
+                                true
+                        ).trim()
+
+
+                    echo(
+                        "Jenkins workspace owner: "
+                        + "${env.AUTOHEAL_WORKSPACE_OWNER}"
+                    )
+
+
+                    // -------------------------------------------------
+                    // DEMO DEPENDENCY FAILURE
+                    // -------------------------------------------------
+
                     if (
-                        params.AUTOHEAL_RETRY &&
-                        (
-                            params.AUTOHEAL_ACTION == 'CLEAN_DEPENDENCY_ENV' ||
-                            params.AUTOHEAL_CLEAN_DEPENDENCY_ENV
+
+                        !env.AUTOHEAL_RETRY
+
+                        &&
+
+                        params.AUTOHEAL_TEST_FAILURE
+                            == 'DEPENDENCY_FAILURE'
+                    ) {
+
+                        echo(
+                            'AutoHeal demo: '
+                            + 'injecting dependency failure.'
                         )
-                    ) {
 
-                        stage('AutoHeal - Dependency Recovery') {
-
-                            echo 'AutoHeal: preparing clean dependency environment...'
-
-                            sh '''
-                                set -eux
-
-                                rm -rf .venv
-
-                                python -m venv .venv
-
-                                . .venv/bin/activate
-
-                                python -m pip install --upgrade pip
-
-                                if [ -f requirements.txt ]; then
-                                    pip install -r requirements.txt
-                                fi
-                            '''
-
-                            echo 'AutoHeal: dependency recovery preparation completed.'
-                        }
-                    }
-
-                    /*
-                     * ------------------------------------------------
-                     * Controlled Dependency Failure
-                     * ------------------------------------------------
-                     */
-                    if (
-                        !params.AUTOHEAL_RETRY &&
-                        params.AUTOHEAL_TEST_FAILURE == 'DEPENDENCY_FAILURE'
-                    ) {
-
-                        echo 'AutoHeal test: injecting dependency failure...'
 
                         sh '''
-                            echo "ERROR: No matching distribution found for AUTOHEAL_DEPENDENCY_FAILURE"
+                            echo \
+                                "AUTOHEAL_DEPENDENCY_FAILURE: dependency resolution failed" \
+                                >&2
+
                             exit 1
                         '''
                     }
 
-                    /*
-                     * ------------------------------------------------
-                     * Controlled Network Failure
-                     * ------------------------------------------------
-                     */
+
+                    // -------------------------------------------------
+                    // AUTOHEAL DEPENDENCY RECOVERY
+                    // -------------------------------------------------
+
                     if (
-                        !params.AUTOHEAL_RETRY &&
-                        params.AUTOHEAL_TEST_FAILURE == 'NETWORK_FAILURE'
+
+                        env.AUTOHEAL_ACTION
+                            == 'CLEAN_DEPENDENCY_ENV'
                     ) {
 
-                        echo 'AutoHeal test: injecting network failure...'
-
-                        sh '''
-                            echo "ERROR: Failed to connect to 127.0.0.1 port 9"
-                            exit 1
-                        '''
-                    }
-
-                    echo 'Running Python tests...'
-
-                    python_test(
-                        requirements: 'requirements.txt',
-                        testCommand: 'pytest',
-                        junitReport: 'report.xml',
-                        coverage: true,
-                        coverageFile: 'coverage.xml'
-                    )
-                }
-            }
-
-            post {
-
-                always {
-
-                    /*
-                     * =================================================
-                     * IMPORTANT WORKSPACE OWNERSHIP FIX
-                     *
-                     * Test container runs as root.
-                     * Restore ownership back to the original Jenkins
-                     * user before the stage finishes.
-                     *
-                     * This prevents the next build's checkout from
-                     * failing with:
-                     * "Operation not permitted"
-                     * =================================================
-                     */
-                    script {
-
-                        if (
-                            env.AUTOHEAL_WORKSPACE_OWNER?.trim()
-                        ) {
-
-                            echo "Restoring workspace ownership to ${env.AUTOHEAL_WORKSPACE_OWNER}..."
-
-                            sh """
-                                set -eux
-
-                                if [ -d "\${WORKSPACE}" ]; then
-                                    chown -R ${env.AUTOHEAL_WORKSPACE_OWNER} "\${WORKSPACE}"
-                                fi
-                            """
-
-                            echo 'Workspace ownership restored.'
-                        }
-                    }
-
-                    junit(
-                        testResults: 'report.xml',
-                        allowEmptyResults: true
-                    )
-
-                    archiveArtifacts(
-                        artifacts: 'coverage.xml',
-                        allowEmptyArchive: true
-                    )
-                }
-            }
-        }
-
-
-        /*
-         * ============================================================
-         * SONARQUBE
-         * ============================================================
-         */
-        stage('SonarQube Analysis') {
-
-            agent {
-                docker {
-                    image 'sonarsource/sonar-scanner-cli:latest'
-                    args '-u root:root'
-                }
-            }
-
-            steps {
-
-                script {
-
-                    /*
-                     * SonarScanner can create .scannerwork and other
-                     * files inside the Jenkins workspace.
-                     *
-                     * Capture the original Jenkins ownership before
-                     * running the scanner as root.
-                     */
-                    env.AUTOHEAL_SONAR_WORKSPACE_OWNER = sh(
-                        script: "stat -c '%u:%g' \"${WORKSPACE}\"",
-                        returnStdout: true
-                    ).trim()
-
-                    echo "Jenkins workspace owner before SonarQube: ${env.AUTOHEAL_SONAR_WORKSPACE_OWNER}"
-
-                    sonarqube_analysis(
-                        server: 'SonarQube',
-                        scanner: 'sonar-scanner'
-                    )
-                }
-            }
-
-            post {
-
-                always {
-
-                    /*
-                     * Restore Jenkins workspace ownership after
-                     * SonarScanner runs as root.
-                     */
-                    script {
-
-                        if (
-                            env.AUTOHEAL_SONAR_WORKSPACE_OWNER?.trim()
-                        ) {
-
-                            echo "Restoring workspace ownership after SonarQube to ${env.AUTOHEAL_SONAR_WORKSPACE_OWNER}..."
-
-                            sh """
-                                set -eux
-
-                                if [ -d "\${WORKSPACE}" ]; then
-                                    chown -R ${env.AUTOHEAL_SONAR_WORKSPACE_OWNER} "\${WORKSPACE}"
-                                fi
-                            """
-
-                            echo 'SonarQube workspace ownership restored.'
-                        }
-                    }
-                }
-            }
-        }
-
-
-        /*
-         * ============================================================
-         * DOCKER BUILD
-         * ============================================================
-         */
-        stage('Docker Build') {
-
-            agent {
-                docker {
-                    image 'docker:28-cli'
-
-                    args '''
-                        -u root:root
-                        -v /var/run/docker.sock:/var/run/docker.sock
-                    '''
-                }
-            }
-
-            steps {
-
-                script {
-
-                    /*
-                     * ------------------------------------------------
-                     * Controlled Docker Failure
-                     * ------------------------------------------------
-                     */
-                    if (
-                        !params.AUTOHEAL_RETRY &&
-                        params.AUTOHEAL_TEST_FAILURE == 'DOCKER_FAILURE'
-                    ) {
-
-                        echo 'AutoHeal test: injecting Docker failure...'
-
-                        sh '''
-                            echo "ERROR: failed to build AUTOHEAL_DOCKER_FAILURE"
-                            exit 1
-                        '''
-                    }
-
-                    /*
-                     * ------------------------------------------------
-                     * AutoHeal Docker Recovery
-                     * ------------------------------------------------
-                     */
-                    if (
-                        params.AUTOHEAL_RETRY &&
-                        (
-                            params.AUTOHEAL_ACTION == 'INVALIDATE_DOCKER_CACHE' ||
-                            params.AUTOHEAL_DOCKER_NO_CACHE
+                        echo(
+                            'AutoHeal: creating a clean Python environment.'
                         )
+
+
+                        sh '''
+                            set -eux
+
+                            rm -rf .venv
+
+                            python -m venv .venv
+
+                            . .venv/bin/activate
+
+                            python -m pip install \
+                                --upgrade \
+                                pip \
+                                setuptools \
+                                wheel
+                        '''
+                    }
+
+
+                    // -------------------------------------------------
+                    // PYTHON TEST
+                    // -------------------------------------------------
+
+                    if (
+
+                        env.AUTOHEAL_ACTION
+                            == 'CLEAN_DEPENDENCY_ENV'
                     ) {
 
-                        stage('AutoHeal - Docker Recovery') {
+                        /*
+                         * Put .venv/bin first in PATH so the existing
+                         * generic python_test() uses the clean venv.
+                         *
+                         * Generic Shared library remains unchanged.
+                         */
 
-                            echo 'AutoHeal: Docker recovery started.'
-                            echo 'AutoHeal: invalidating Docker build cache.'
-                            echo 'AutoHeal: rebuilding image with --no-cache.'
+                        withEnv([
+                            "PATH=${env.WORKSPACE}/.venv/bin:${env.PATH}"
+                        ]) {
 
-                            sh """
-                                docker build \
-                                    --no-cache \
-                                    -t ${IMAGE_NAME}:${IMAGE_TAG} \
-                                    .
-                            """
+                            python_test(
 
-                            echo 'AutoHeal: Docker recovery completed.'
+                                requirements:
+                                    'requirements.txt',
+
+                                testCommand:
+                                    'pytest',
+
+                                junitReport:
+                                    'report.xml',
+
+                                coverage:
+                                    true,
+
+                                coverageFile:
+                                    'coverage.xml'
+                            )
                         }
 
                     } else {
 
+                        python_test(
+
+                            requirements:
+                                'requirements.txt',
+
+                            testCommand:
+                                'pytest',
+
+                            junitReport:
+                                'report.xml',
+
+                            coverage:
+                                true,
+
+                            coverageFile:
+                                'coverage.xml'
+                        )
+                    }
+                }
+            }
+
+
+            post {
+
+                always {
+
+                    script {
+
                         /*
-                         * Normal Docker build.
+                         * Root Docker test container can create
+                         * root-owned files. Restore Jenkins ownership.
                          */
+
+                        if (
+
+                            env.AUTOHEAL_WORKSPACE_OWNER
+                            ?.trim()
+                        ) {
+
+                            echo(
+                                "Restoring workspace ownership to "
+                                + "${env.AUTOHEAL_WORKSPACE_OWNER}..."
+                            )
+
+
+                            sh """
+                                set -eux
+
+                                if [ -d "${WORKSPACE}" ]; then
+
+                                    chown -R \
+                                        ${env.AUTOHEAL_WORKSPACE_OWNER} \
+                                        "${WORKSPACE}"
+
+                                fi
+                            """
+
+
+                            echo(
+                                'Workspace ownership restored.'
+                            )
+                        }
+                    }
+
+
+                    junit(
+
+                        testResults:
+                            'report.xml',
+
+                        allowEmptyResults:
+                            true
+                    )
+
+
+                    archiveArtifacts(
+
+                        artifacts:
+                            'coverage.xml',
+
+                        allowEmptyArchive:
+                            true
+                    )
+                }
+            }
+        }
+
+
+        // =====================================================
+        // SONARQUBE
+        // =====================================================
+
+        stage('SonarQube Analysis') {
+
+            agent {
+
+                docker {
+
+                    image:
+                        'sonarsource/sonar-scanner-cli:latest'
+
+                    args:
+                        '-u root:root'
+
+                    reuseNode:
+                        true
+                }
+            }
+
+
+            steps {
+
+                script {
+
+                    /*
+                     * Preserve your existing ownership protection.
+                     */
+
+                    env.AUTOHEAL_SONAR_WORKSPACE_OWNER =
+                        sh(
+
+                            script:
+                                "stat -c '%u:%g' \"${WORKSPACE}\"",
+
+                            returnStdout:
+                                true
+                        ).trim()
+
+
+                    echo(
+                        "Jenkins workspace owner before SonarQube: "
+                        + "${env.AUTOHEAL_SONAR_WORKSPACE_OWNER}"
+                    )
+
+
+                    sonarqube_analysis(
+
+                        server:
+                            'SonarQube',
+
+                        scanner:
+                            'sonar-scanner'
+                    )
+                }
+            }
+
+
+            post {
+
+                always {
+
+                    script {
+
+                        if (
+
+                            env.AUTOHEAL_SONAR_WORKSPACE_OWNER
+                            ?.trim()
+                        ) {
+
+                            echo(
+                                'Restoring workspace ownership after SonarQube...'
+                            )
+
+
+                            sh """
+                                set -eux
+
+                                if [ -d "${WORKSPACE}" ]; then
+
+                                    chown -R \
+                                        ${env.AUTOHEAL_SONAR_WORKSPACE_OWNER} \
+                                        "${WORKSPACE}"
+
+                                fi
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+
+        // =====================================================
+        // DOCKER BUILD
+        // =====================================================
+
+        stage('Docker Build') {
+
+            agent {
+
+                docker {
+
+                    image:
+                        'docker:28-cli'
+
+                    args:
+                        '''
+                        -u root:root
+                        -v /var/run/docker.sock:/var/run/docker.sock
+                        '''
+
+                    reuseNode:
+                        true
+                }
+            }
+
+
+            steps {
+
+                script {
+
+                    // -------------------------------------------------
+                    // DEMO DOCKER FAILURE
+                    // -------------------------------------------------
+
+                    if (
+
+                        !env.AUTOHEAL_RETRY
+
+                        &&
+
+                        params.AUTOHEAL_TEST_FAILURE
+                            == 'DOCKER_FAILURE'
+                    ) {
+
+                        echo(
+                            'AutoHeal demo: '
+                            + 'injecting Docker failure.'
+                        )
+
+
+                        sh '''
+                            echo \
+                                "AUTOHEAL_DOCKER_FAILURE: failed to connect to Docker daemon" \
+                                >&2
+
+                            exit 1
+                        '''
+                    }
+
+
+                    // -------------------------------------------------
+                    // AUTOHEAL DOCKER RECOVERY
+                    // -------------------------------------------------
+
+                    if (
+
+                        env.AUTOHEAL_ACTION
+                            == 'INVALIDATE_DOCKER_CACHE'
+                    ) {
+
+                        echo(
+                            'AutoHeal: rebuilding Docker image without cache.'
+                        )
+
+
+                        sh """
+                            set -eux
+
+                            docker build \
+                                --no-cache \
+                                -t ${IMAGE_NAME}:${IMAGE_TAG} \
+                                .
+                        """
+
+                    } else {
+
                         docker_build(
-                            image: IMAGE_NAME,
-                            tag: IMAGE_TAG
+
+                            image:
+                                env.IMAGE_NAME,
+
+                            tag:
+                                env.IMAGE_TAG
                         )
                     }
                 }
@@ -571,114 +674,153 @@ pipeline {
         }
 
 
-        /*
-         * ============================================================
-         * TRIVY
-         * ============================================================
-         */
+        // =====================================================
+        // TRIVY
+        // =====================================================
+
         stage('Trivy Security Scan') {
 
             agent {
-                docker {
-                    image 'aquasec/trivy:latest'
 
-                    args '''
+                docker {
+
+                    image:
+                        'aquasec/trivy:latest'
+
+                    args:
+                        '''
                         --entrypoint=''
                         -u root:root
                         -v /var/run/docker.sock:/var/run/docker.sock
-                    '''
+                        '''
+
+                    reuseNode:
+                        true
                 }
             }
+
 
             steps {
 
                 script {
 
                     trivy_scan(
-                        image: IMAGE_NAME,
-                        tag: IMAGE_TAG,
-                        severity: 'CRITICAL,HIGH',
-                        exitCode: '0'
+
+                        image:
+                            env.IMAGE_NAME,
+
+                        tag:
+                            env.IMAGE_TAG,
+
+                        severity:
+                            'CRITICAL,HIGH',
+
+                        exitCode:
+                            '0'
                     )
                 }
             }
         }
 
 
-        /*
-         * ============================================================
-         * DOCKER PUSH
-         * ============================================================
-         */
+        // =====================================================
+        // DOCKER PUSH
+        // =====================================================
+
         stage('Docker Push') {
 
             agent {
-                docker {
-                    image 'docker:28-cli'
 
-                    args '''
+                docker {
+
+                    image:
+                        'docker:28-cli'
+
+                    args:
+                        '''
                         -u root:root
                         -v /var/run/docker.sock:/var/run/docker.sock
-                    '''
+                        '''
+
+                    reuseNode:
+                        true
                 }
             }
+
 
             steps {
 
                 script {
 
-                    /*
-                     * ------------------------------------------------
-                     * Controlled Registry Failure
-                     * ------------------------------------------------
-                     */
+                    // -------------------------------------------------
+                    // DEMO REGISTRY FAILURE
+                    // -------------------------------------------------
+
                     if (
-                        !params.AUTOHEAL_RETRY &&
-                        params.AUTOHEAL_TEST_FAILURE == 'REGISTRY_FAILURE'
+
+                        !env.AUTOHEAL_RETRY
+
+                        &&
+
+                        params.AUTOHEAL_TEST_FAILURE
+                            == 'REGISTRY_FAILURE'
                     ) {
 
-                        echo 'AutoHeal test: injecting registry failure...'
+                        echo(
+                            'AutoHeal demo: '
+                            + 'injecting registry failure.'
+                        )
+
 
                         sh '''
-                            echo "ERROR: unauthorized: registry access denied"
+                            echo \
+                                "AUTOHEAL_REGISTRY_FAILURE: unauthorized registry access" \
+                                >&2
+
                             exit 1
                         '''
                     }
 
-                    /*
-                     * ------------------------------------------------
-                     * AutoHeal Registry Recovery
-                     * ------------------------------------------------
-                     */
+
+                    // -------------------------------------------------
+                    // AUTOHEAL REGISTRY RECOVERY
+                    // -------------------------------------------------
+
                     if (
-                        params.AUTOHEAL_RETRY &&
-                        params.AUTOHEAL_ACTION == 'RETRY_REGISTRY'
+
+                        env.AUTOHEAL_ACTION
+                            == 'RETRY_REGISTRY'
                     ) {
 
-                        stage('AutoHeal - Registry Recovery') {
+                        echo(
+                            'AutoHeal: retrying Docker registry push.'
+                        )
 
-                            echo 'AutoHeal: registry recovery started.'
-                            echo 'AutoHeal: re-authenticating with Docker Hub.'
-                            echo 'AutoHeal: retrying image push.'
 
-                            docker_push(
-                                image: IMAGE_NAME,
-                                tag: IMAGE_TAG,
-                                credentialsId: 'dockerhub'
-                            )
+                        docker_push(
 
-                            echo 'AutoHeal: registry recovery completed.'
-                        }
+                            image:
+                                env.IMAGE_NAME,
+
+                            tag:
+                                env.IMAGE_TAG,
+
+                            credentialsId:
+                                'dockerhub'
+                        )
 
                     } else {
 
-                        /*
-                         * Normal Docker push.
-                         */
                         docker_push(
-                            image: IMAGE_NAME,
-                            tag: IMAGE_TAG,
-                            credentialsId: 'dockerhub'
+
+                            image:
+                                env.IMAGE_NAME,
+
+                            tag:
+                                env.IMAGE_TAG,
+
+                            credentialsId:
+                                'dockerhub'
                         )
                     }
                 }
@@ -687,77 +829,26 @@ pipeline {
     }
 
 
-    /*
-     * ================================================================
-     * POST
-     * ================================================================
-     */
+    // =========================================================
+    // AUTOHEAL POST FAILURE HOOK
+    // =========================================================
+
     post {
 
         failure {
+
+            /*
+             * agent none means the post block does not
+             * automatically have an executor for shell steps.
+             *
+             * Run AutoHeal from your Jenkins built-in node.
+             */
 
             node('built-in') {
 
                 script {
 
-                    /*
-                     * NEVER recursively notify AutoHeal for a
-                     * retry build.
-                     */
-                    if (params.AUTOHEAL_RETRY) {
-
-                        echo 'AutoHeal retry build failed.'
-                        echo 'Skipping recursive AutoHeal webhook.'
-
-                    } else {
-
-                        sh(
-                            script: '''
-                                set +e
-
-                                # Remove any stale response first.
-                                rm -f /tmp/autoheal-response.json
-
-                                HTTP_CODE=$(curl \
-                                    --silent \
-                                    --show-error \
-                                    --output /tmp/autoheal-response.json \
-                                    --write-out "%{http_code}" \
-                                    --max-time 10 \
-                                    -X POST \
-                                    http://127.0.0.1:8000/webhook/jenkins \
-                                    -H "Content-Type: application/json" \
-                                    -H "X-AutoHeal-Secret: change-me" \
-                                    --data-binary @- <<EOF
-{
-    "job_name": "${JOB_NAME}",
-    "build_number": ${BUILD_NUMBER},
-    "build_url": "${BUILD_URL}",
-    "status": "FAILURE"
-}
-EOF
-                                )
-
-                                echo "AutoHeal HTTP status: ${HTTP_CODE}"
-
-                                if [ -f /tmp/autoheal-response.json ]; then
-                                    echo "AutoHeal response:"
-                                    cat /tmp/autoheal-response.json
-                                fi
-
-                                if [ "${HTTP_CODE}" = "202" ] || [ "${HTTP_CODE}" = "200" ]; then
-                                    echo "AutoHeal accepted the failure."
-                                elif [ "${HTTP_CODE}" = "000" ]; then
-                                    echo "WARNING: AutoHeal webhook could not be reached."
-                                else
-                                    echo "WARNING: AutoHeal returned HTTP ${HTTP_CODE}"
-                                fi
-
-                                exit 0
-                            ''',
-                            label: 'Notify AutoHeal'
-                        )
-                    }
+                    autoheal()
                 }
             }
         }

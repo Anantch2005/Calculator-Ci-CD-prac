@@ -1,70 +1,148 @@
 import os
+
 import pytest
 
 from calculator import *
 
 
 def test_add():
-    assert add(2, 3) == 5
+
+    assert add(
+        2,
+        3,
+    ) == 5
 
 
 def test_add_negative():
-    assert add(-5, 2) == -3
+
+    assert add(
+        -5,
+        2,
+    ) == -3
 
 
 def test_subtract():
-    assert subtract(10, 4) == 6
+
+    assert subtract(
+        10,
+        4,
+    ) == 6
 
 
 def test_subtract_negative():
-    assert subtract(2, 5) == -3
+
+    assert subtract(
+        2,
+        5,
+    ) == -3
 
 
 def test_multiply():
-    assert multiply(5, 4) == 20
+
+    assert multiply(
+        5,
+        4,
+    ) == 20
 
 
 def test_multiply_zero():
-    assert multiply(10, 0) == 0
+
+    assert multiply(
+        10,
+        0,
+    ) == 0
 
 
 def test_divide():
-    assert divide(10, 2) == 5
+
+    assert divide(
+        10,
+        2,
+    ) == 5
 
 
 def test_divide_float():
-    assert divide(5, 2) == 2.5
+
+    assert divide(
+        5,
+        2,
+    ) == 2.5
 
 
 def test_divide_by_zero():
-    with pytest.raises(ValueError):
-        divide(10, 0)
+
+    with pytest.raises(
+        ValueError
+    ):
+
+        divide(
+            10,
+            0,
+        )
 
 
 def test_even():
-    assert is_even(10)
+
+    assert is_even(
+        10
+    )
 
 
 def test_odd():
-    assert not is_even(11)
+
+    assert not is_even(
+        11
+    )
 
 
 def test_square():
-    assert square(5) == 25
+
+    assert square(
+        5
+    ) == 25
 
 
 def test_autoheal_flaky():
-    """
-    Controlled failure used to test AutoHeal.
 
-    Only fails when the FLAKY_TEST failure mode is explicitly selected.
+    """
+    Demo-only AutoHeal failure.
+
+    Initial failure build:
+
+        AUTOHEAL_TEST_FAILURE=FLAKY_TEST
+        AUTOHEAL_RETRY is not true
+
+    AutoHeal retry:
+
+        AUTOHEAL_RETRY=true
+
+    The retry therefore succeeds.
     """
 
-    test_mode = os.getenv("AUTOHEAL_TEST_FAILURE", "NONE")
+    test_mode = os.getenv(
+        "AUTOHEAL_TEST_FAILURE",
+        "NONE",
+    )
+
 
     if (
-        os.getenv("AUTOHEAL_TEST") == "true"
-        and test_mode == "FLAKY_TEST"
-        and os.getenv("AUTOHEAL_RETRY") != "true"
+
+        os.getenv(
+            "AUTOHEAL_TEST"
+        ) == "true"
+
+        and
+
+        test_mode
+            == "FLAKY_TEST"
+
+        and
+
+        os.getenv(
+            "AUTOHEAL_RETRY"
+        ) != "true"
     ):
-        assert False, "AUTOHEAL_FLAKY_TEST"
+
+        assert False, (
+            "AUTOHEAL_FLAKY_TEST"
+        )
