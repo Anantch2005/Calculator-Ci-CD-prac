@@ -1,4 +1,3 @@
-```groovy
 @Library(['Shared', 'AutoHeal']) _
 
 pipeline {
@@ -355,4 +354,3 @@ pipeline {
         }
     }
 }
-```
