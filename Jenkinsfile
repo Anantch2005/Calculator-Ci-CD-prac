@@ -315,7 +315,7 @@ pipeline {
         stage('Trivy Security Scan') {
             agent {
                 docker {
-                    image 'aquasec/trivy:0.67.2'
+                    image 'aquasec/trivy:latest'
                     args '''
                         --entrypoint=''
                         -u root:root
