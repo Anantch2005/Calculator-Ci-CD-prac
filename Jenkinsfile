@@ -20,13 +20,13 @@ pipeline {
             name: 'AUTOHEAL_TEST_FAILURE',
             choices: [
                 'NONE',
-                'CODE_FAILURE',
+                'FLAKY_TEST',
                 'WORKSPACE_FAILURE',
                 'DEPENDENCY_FAILURE',
-                'NETWORK_FAILURE',
+                'CODE_FAILURE',
                 'UNKNOWN_FAILURE'
             ],
-            description: 'Controlled fault-injection scenario for AutoHeal validation.'
+            description: 'Demo only: intentionally trigger an AutoHeal failure.'
         )
     }
 
@@ -47,60 +47,36 @@ pipeline {
 
             steps {
                 script {
-                    // Run approved recovery actions at the appropriate stage.
-                    autoheal(stage: 'checkout')
-
-                    /*
-                     * Controlled workspace fault:
-                     * The Jenkins agent user creates a read-only directory
-                     * and then attempts to write to it.
-                     *
-                     * Do not run this scenario as root on the host agent.
-                     */
-                    if (
-                        !env.AUTOHEAL_RETRY &&
-                        params.AUTOHEAL_TEST_FAILURE == 'WORKSPACE_FAILURE'
-                    ) {
-                        echo 'AutoHeal test: inducing a real workspace permission failure.'
-
+                    // Reset one-shot demo state only for a fresh manual build.
+                    // Recovery builds carry AUTOHEAL_ACTION and preserve the
+                    // recovery marker created after the approved action runs.
+                    if (!(params.AUTOHEAL_ACTION ?: '').trim()) {
                         sh '''
-                            set -eu
-
-                            mkdir -p .autoheal-workspace-probe/locked
-                            chmod 0555 .autoheal-workspace-probe/locked
-
-                            echo "AUTOHEAL_WORKSPACE_FAILURE: workspace permission denied while writing probe" >&2
-
-                            touch .autoheal-workspace-probe/locked/probe.txt
+                            rm -f .autoheal-demo-workspace-recovered \
+                                  .autoheal-demo-dependency-recovered \
+                                  .autoheal-demo-flaky-triggered
                         '''
                     }
 
-                    /*
-                     * Controlled network fault:
-                     * Attempt a real HTTP connection to a local port where
-                     * no service is expected to be listening.
-                     *
-                     * This does not disable the machine's network or change
-                     * firewall settings.
-                     */
-                    if (
-                        !env.AUTOHEAL_RETRY &&
-                        params.AUTOHEAL_TEST_FAILURE == 'NETWORK_FAILURE'
-                    ) {
-                        echo 'AutoHeal test: attempting a real HTTP connection to a controlled closed port.'
+                    // Recovery hook for workspace/checkout actions.
+                    autoheal(stage: 'checkout')
 
+                    if (params.AUTOHEAL_ACTION == 'CLEAN_WORKSPACE') {
+                        writeFile file: '.autoheal-demo-workspace-recovered',
+                                  text: 'Workspace cleanup ran before checkout.\n'
+                    }
+
+                    if (
+                        params.AUTOHEAL_TEST_FAILURE == 'WORKSPACE_FAILURE' &&
+                        !fileExists('.autoheal-demo-workspace-recovered')
+                    ) {
+                        echo 'Demo: creating a real workspace permission failure.'
                         sh '''
                             set -eu
-
-                            python3 - <<'PY'
-import urllib.request
-
-url = "http://127.0.0.1:9/autoheal-network-probe"
-print(f"Attempting HTTP request to {url}")
-
-with urllib.request.urlopen(url, timeout=3) as response:
-    print(f"Unexpected response: {response.status}")
-PY
+                            mkdir -p .autoheal-demo-locked/locked
+                            chmod 0555 .autoheal-demo-locked/locked
+                            echo 'AUTOHEAL_WORKSPACE_FAILURE: permission denied writing workspace probe' >&2
+                            echo 'probe' > .autoheal-demo-locked/locked/probe
                         '''
                     }
 
@@ -118,7 +94,7 @@ PY
         stage('Test') {
             agent {
                 docker {
-                    image 'python:3.12'
+                    image 'python:3.12.12'
                     args '-u root:root'
                     reuseNode true
                 }
@@ -133,8 +109,14 @@ PY
 
                     echo "Jenkins workspace owner: ${env.AUTOHEAL_WORKSPACE_OWNER}"
 
-                    // Run only the recovery action authorized by AutoHeal.
+                    // Execute the approved recovery before testing.
+                    // The Shared Library owns the recovery commands.
                     autoheal(stage: 'test')
+
+                    if (params.AUTOHEAL_ACTION == 'CLEAN_DEPENDENCY_ENV') {
+                        writeFile file: '.autoheal-demo-dependency-recovered',
+                                  text: 'Dependency environment was recreated from requirements.txt.\n'
+                    }
 
                     sh '''
                         set -eu
@@ -148,16 +130,13 @@ PY
                             -r requirements.txt
                     '''
 
-                    /*
-                     * Controlled dependency fault:
-                     * Remove the test runner from the same virtual
-                     * environment used by the test command.
-                     */
+                    // Demo only: remove test dependencies from the
+                    // environment actually used by the test command.
                     if (
-                        !env.AUTOHEAL_RETRY &&
-                        params.AUTOHEAL_TEST_FAILURE == 'DEPENDENCY_FAILURE'
+                        params.AUTOHEAL_TEST_FAILURE == 'DEPENDENCY_FAILURE' &&
+                        !fileExists('.autoheal-demo-dependency-recovered')
                     ) {
-                        echo 'AutoHeal test: removing pytest packages to create a real dependency failure.'
+                        echo 'Demo: removing pytest packages to create a real dependency failure.'
 
                         sh '''
                             set -eu
@@ -165,47 +144,35 @@ PY
                         '''
                     }
 
-                    /*
-                     * Controlled code fault:
-                     * A real failing assertion. AutoHeal should classify
-                     * this as a code failure and avoid unsafe auto-fixes.
-                     */
                     if (
-                        !env.AUTOHEAL_RETRY &&
-                        params.AUTOHEAL_TEST_FAILURE == 'CODE_FAILURE'
+                        params.AUTOHEAL_TEST_FAILURE == 'FLAKY_TEST' &&
+                        !fileExists('.autoheal-demo-flaky-triggered')
                     ) {
-                        echo 'AutoHeal test: triggering a controlled assertion failure.'
-
+                        writeFile file: '.autoheal-demo-flaky-triggered',
+                                  text: 'The one-shot flaky failure has been injected.\n'
                         sh '''
-                            set -eu
-
-                            .venv/bin/python - <<'PY'
-assert 2 + 3 == 9, (
-    "Controlled code-failure test: "
-    "expected an intentionally incorrect result"
-)
-PY
+                            echo "AUTOHEAL_FLAKY_TEST: simulated one-shot test infrastructure failure" >&2
+                            exit 1
                         '''
                     }
 
-                    /*
-                     * Unknown fault:
-                     * Used to verify that unrecognized failures are
-                     * escalated instead of automatically remediated.
-                     */
+                    if (params.AUTOHEAL_TEST_FAILURE == 'CODE_FAILURE') {
+                        sh '''
+                            python -c 'assert 2 + 3 == 9, "AUTOHEAL_DEMO_CODE_FAILURE: intentional assertion failure"'
+                        '''
+                    }
+
                     if (
-                        !env.AUTOHEAL_RETRY &&
                         params.AUTOHEAL_TEST_FAILURE == 'UNKNOWN_FAILURE'
                     ) {
                         sh '''
-                            set -eu
                             echo "AUTOHEAL_DEMO_UNKNOWN: unexpected controller condition 7312" >&2
                             exit 1
                         '''
                     }
 
-                    // Run tests using the same virtual environment
-                    // that was installed and used for fault injection.
+                    // The tests must use the same virtual environment
+                    // that AutoHeal recovers.
                     sh '''
                         set -eu
 
@@ -252,14 +219,14 @@ PY
         }
 
         // =====================================================
-        // SONARQUBE ANALYSIS
+        // SONARQUBE
         // =====================================================
 
         stage('SonarQube Analysis') {
             agent {
                 docker {
-                    image 'sonarsource/sonar-scanner-cli:latest'
-                    args '-u root:root'
+                    image 'sonarsource/sonar-scanner-cli:6.2.1'
+                    args "--entrypoint='' -u root:root"
                     reuseNode true
                 }
             }
@@ -308,7 +275,7 @@ PY
         stage('Docker Build') {
             agent {
                 docker {
-                    image 'docker:28-cli'
+                    image 'docker:28.3.3-cli'
                     args '''
                         -u root:root
                         -v /var/run/docker.sock:/var/run/docker.sock
@@ -319,26 +286,36 @@ PY
 
             steps {
                 script {
-                    // AutoHeal may request an approved cache-bypassing
-                    // rebuild. A Docker daemon outage must be escalated.
+                    // AutoHeal only runs an approved action here.
+                    // A Docker daemon outage must be escalated.
                     autoheal(stage: 'docker')
 
-                    docker_build(
-                        image: env.IMAGE_NAME,
-                        tag: env.IMAGE_TAG
-                    )
+                    if (params.AUTOHEAL_ACTION in ['DOCKER_CACHE_BYPASS', 'DOCKER_CACHE_BYPASS_AND_RETRY', 'INVALIDATE_DOCKER_CACHE', 'INVALIDATE_DOCKER_CACHE_AND_RETRY']) {
+                        echo 'AutoHeal recovery: building this image with --no-cache.'
+                        sh '''
+                            set -eu
+                            docker build --no-cache \
+                                --tag "${IMAGE_NAME}:${IMAGE_TAG}" \
+                                .
+                        '''
+                    } else {
+                        docker_build(
+                            image: env.IMAGE_NAME,
+                            tag: env.IMAGE_TAG
+                        )
+                    }
                 }
             }
         }
 
         // =====================================================
-        // TRIVY SECURITY SCAN
+        // TRIVY
         // =====================================================
 
         stage('Trivy Security Scan') {
             agent {
                 docker {
-                    image 'aquasec/trivy:latest'
+                    image 'aquasec/trivy:0.67.2'
                     args '''
                         --entrypoint=''
                         -u root:root
@@ -354,7 +331,7 @@ PY
                         image: env.IMAGE_NAME,
                         tag: env.IMAGE_TAG,
                         severity: 'CRITICAL,HIGH',
-                        exitCode: '0'
+                        exitCode: '1'
                     )
                 }
             }
@@ -367,7 +344,7 @@ PY
         stage('Docker Push') {
             agent {
                 docker {
-                    image 'docker:28-cli'
+                    image 'docker:28.3.3-cli'
                     args '''
                         -u root:root
                         -v /var/run/docker.sock:/var/run/docker.sock
@@ -378,7 +355,7 @@ PY
 
             steps {
                 script {
-                    // Recovery must never bypass registry authentication.
+                    // Registry hook does not bypass authentication.
                     autoheal(stage: 'registry')
 
                     docker_push(
@@ -399,14 +376,13 @@ PY
         failure {
             node('built-in') {
                 script {
-                    /*
-                     * Report normal build failures to AutoHeal.
-                     * The Shared Library must prevent recursive incident
-                     * submission for recovery builds.
-                     */
+                    // Normal failed build: report incident.
+                    // Recovery build: Shared Library should prevent
+                    // recursive incident submission.
                     autoheal()
                 }
             }
         }
     }
 }
+

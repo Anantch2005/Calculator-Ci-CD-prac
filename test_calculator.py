@@ -1,4 +1,3 @@
-import os
 
 import pytest
 
@@ -101,48 +100,3 @@ def test_square():
         5
     ) == 25
 
-
-def test_autoheal_flaky():
-
-    """
-    Demo-only AutoHeal failure.
-
-    Initial failure build:
-
-        AUTOHEAL_TEST_FAILURE=FLAKY_TEST
-        AUTOHEAL_RETRY is not true
-
-    AutoHeal retry:
-
-        AUTOHEAL_RETRY=true
-
-    The retry therefore succeeds.
-    """
-
-    test_mode = os.getenv(
-        "AUTOHEAL_TEST_FAILURE",
-        "NONE",
-    )
-
-
-    if (
-
-        os.getenv(
-            "AUTOHEAL_TEST"
-        ) == "true"
-
-        and
-
-        test_mode
-            == "FLAKY_TEST"
-
-        and
-
-        os.getenv(
-            "AUTOHEAL_RETRY"
-        ) != "true"
-    ):
-
-        assert False, (
-            "AUTOHEAL_FLAKY_TEST"
-        )
