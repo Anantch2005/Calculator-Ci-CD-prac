@@ -15,6 +15,7 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN python -m pip install --upgrade pip \
     && python -m pip install -r requirements.txt \
+    && python -m pip install --upgrade setuptools urllib3 msgpack \
     && useradd --create-home --uid 10001 --shell /usr/sbin/nologin calculator
 
 COPY --chown=calculator:calculator . .
