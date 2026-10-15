@@ -1,3 +1,6 @@
 pytest==9.1.1
 pytest-cov==7.1.0
 coverage==7.16.1
+urllib3>=2.8.0
+msgpack>=1.2.1
+setuptools>=78.1.1
