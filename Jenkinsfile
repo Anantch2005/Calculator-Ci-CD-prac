@@ -225,7 +225,7 @@ pipeline {
         stage('SonarQube Analysis') {
             agent {
                 docker {
-                    image 'sonarsource/sonar-scanner-cli:6.2.1'
+                    image 'sonarsource/sonar-scanner-cli:latest'
                     args "--entrypoint='' -u root:root"
                     reuseNode true
                 }
