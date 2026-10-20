@@ -289,6 +289,7 @@ pipeline {
                         --entrypoint=''
                         -u root:root
                         -v /var/run/docker.sock:/var/run/docker.sock
+                        -v buildsentry_trivy_cache:/root/.cache/trivy
                     '''
                     reuseNode true
                 }
